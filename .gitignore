@@ -1,0 +1,6 @@
+.env
+*.log
+.idea/
+target/
+.DS_Store
+docs/
