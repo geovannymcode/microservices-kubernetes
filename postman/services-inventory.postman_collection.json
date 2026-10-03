@@ -1,13 +1,17 @@
 {
   "info": {
-    "name": "Inventory Service — contrato v1.1.0",
-    "description": "Colección Inventory Service v1.1.0. Ejecutar la carpeta local en orden contra el perfil local. No contiene claves reales.",
+    "name": "Inventory Service — contrato v2.0.0",
+    "description": "Colección Inventory Service v2.0.0. Ejecutar la carpeta local en orden contra el perfil local. No contiene claves reales.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "baseUrl",
       "value": "http://localhost:8080"
+    },
+    {
+      "key": "domainISk8s",
+      "value": "http://127.0.0.1:62795"
     },
     {
       "key": "productId",
@@ -256,7 +260,8 @@
                       "script": {
                         "type": "text/javascript",
                         "exec": [
-                          "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                          "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/product-not-found\"));"
                         ]
                       }
                     }
@@ -299,7 +304,7 @@
                       "script": {
                         "type": "text/javascript",
                         "exec": [
-                          "pm.collectionVariables.set(\"secuentialId\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                          "pm.collectionVariables.set(\"secuentialId\", pm.variables.replaceIn(\"{{$guid}}\").toUpperCase());"
                         ]
                       }
                     },
@@ -354,7 +359,8 @@
                       "script": {
                         "type": "text/javascript",
                         "exec": [
-                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/duplicate-product\"));"
                         ]
                       }
                     }
@@ -397,7 +403,8 @@
                       "script": {
                         "type": "text/javascript",
                         "exec": [
-                          "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                          "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/validation-error\"));"
                         ]
                       }
                     }
@@ -527,7 +534,7 @@
                       "script": {
                         "type": "text/javascript",
                         "exec": [
-                          "pm.collectionVariables.set(\"insufficientStockProductId\", \"LOW-\" + pm.variables.replaceIn(\"{{$guid}}\"));"
+                          "pm.collectionVariables.set(\"insufficientStockProductId\", \"LOW-\" + pm.variables.replaceIn(\"{{$guid}}\").toUpperCase());"
                         ]
                       }
                     },
@@ -580,7 +587,8 @@
                       "script": {
                         "type": "text/javascript",
                         "exec": [
-                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));"
+                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/insufficient-stock\"));"
                         ]
                       }
                     }
@@ -639,6 +647,617 @@
               ]
             }
           ]
+        },
+        {
+          "name": "k8s",
+          "item": [
+            {
+              "name": "Actuator",
+              "item": [
+                {
+                  "name": "actuator/health",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/actuator/health"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "liveness",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/actuator/health/liveness"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "readiness",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/actuator/health/readiness"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "prometheus",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "text/plain"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/actuator/prometheus"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Formato de exposición de Prometheus\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"text/plain\"));",
+                          "pm.test(\"Métricas HTTP y de negocio\", () => {",
+                          "  const body = pm.response.text();",
+                          "  pm.expect(body).to.include(\"http_server_requests_seconds\");",
+                          "  pm.expect(body).to.include(\"inventory_stock_decrease_total\");",
+                          "  pm.expect(body).to.include(\"inventory_product_registered_total\");",
+                          "});"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Inventories",
+              "item": [
+                {
+                  "name": "list inventories",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get inventory",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories/{{productId}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get inventory missing",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories/MISSING-{{secuentialId}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/product-not-found\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save inventory",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"idProduct\": \"PRD-{{secuentialId}}\",\n  \"nameProduct\": \"Producto de prueba\",\n  \"price\": 123.5,\n  \"stock\": 50\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "prerequest",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.collectionVariables.set(\"secuentialId\", pm.variables.replaceIn(\"{{$guid}}\").toUpperCase());"
+                        ]
+                      }
+                    },
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                          "pm.test(\"Location presente\", () => pm.expect(pm.response.headers.get(\"Location\")).to.include(\"/services-inventory/inventories/\"));",
+                          "pm.collectionVariables.set(\"savedProductId\", pm.response.json().idProduct);"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save inventory duplicate",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories",
+                    "description": "Ejecutar después de save inventory.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"idProduct\": \"{{savedProductId}}\",\n  \"nameProduct\": \"Producto duplicado\",\n  \"price\": 123.5,\n  \"stock\": 50\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/duplicate-product\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save inventory invalid",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"idProduct\": \"PRD-INVALID\",\n  \"nameProduct\": \"Producto inválido\",\n  \"price\": 0,\n  \"stock\": 0\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/validation-error\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "update inventory",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories/{{savedProductId}}",
+                    "description": "Ejecutar después de save inventory.",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"orderCount\": 1\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "update inventory error",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories/{{productId}}",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"orderCount\": 6\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "prepare inventory sin stock",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"idProduct\": \"{{insufficientStockProductId}}\",\n  \"nameProduct\": \"Producto con una unidad\",\n  \"price\": 1.0,\n  \"stock\": 1\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "prerequest",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.collectionVariables.set(\"insufficientStockProductId\", \"LOW-\" + pm.variables.replaceIn(\"{{$guid}}\").toUpperCase());"
+                        ]
+                      }
+                    },
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "update inventory sin stock",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "x-api-key",
+                        "value": "{{apiKey}}",
+                        "disabled": true,
+                        "description": "Opcional: habilitar solo si el gateway requiere autenticación."
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories/{{insufficientStockProductId}}",
+                    "description": "Ejecutar prepare inventory sin stock primero. Hay 1 unidad y se piden 2; la cantidad es válida (1..5).",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\n  \"orderCount\": 2\n}",
+                      "options": {
+                        "raw": {
+                          "language": "json"
+                        }
+                      }
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/insufficient-stock\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "list inventories NDJSON",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/x-ndjson"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories?delayMs=50"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Content-Type\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/x-ndjson\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "list inventories SSE",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "text/event-stream"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories?delayMs=50"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Content-Type\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"text/event-stream\"));"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "description": "Contra minikube: {{domainISk8s}} es la URL que imprime \"minikube service service-inventory -n codearti --url\" (por ejemplo http://127.0.0.1:62795). Datos semilla recién creados por Flyway."
         }
       ]
     }
