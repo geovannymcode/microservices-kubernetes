@@ -1,0 +1,367 @@
+openapi: 3.1.0
+info:
+  title: Inventory Service
+  version: 1.1.0
+  description: >-
+    Contrato del inventario reactivo. idProduct y productId identifican products.code;
+    la clave interna products.id nunca se expone. PUT descuenta unidades y no es
+    idempotente: no debe reintentarse automáticamente tras una respuesta incierta.
+servers:
+  - url: /services-inventory
+    description: Prefijo del servicio
+security: []
+tags:
+  - name: Inventories
+    description: Consulta, creación y descuento atómico de existencias.
+paths:
+  /inventories:
+    get:
+      tags: [Inventories]
+      operationId: listInventories
+      summary: Listar productos ordenados por código
+      parameters:
+        - name: delayMs
+          in: query
+          required: false
+          description: Parámetro de demostración; demora no bloqueante entre productos, en milisegundos.
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 2000
+            default: 0
+          example: 500
+      responses:
+        '200':
+          description: Productos ordenados por idProduct ascendente.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InventoryResponse'
+              examples:
+                products:
+                  value:
+                    - idProduct: AC-1550
+                      nameProduct: Lentes
+                      price: 123.50
+                      stock: 50
+            application/x-ndjson:
+              schema:
+                type: string
+                description: Cada línea es un objeto InventoryResponse independiente.
+              examples:
+                products:
+                  value: |
+                    {"idProduct":"AC-1550","nameProduct":"Lentes","price":123.50,"stock":50}
+                    {"idProduct":"AC-1551","nameProduct":"Teclado","price":89.90,"stock":30}
+            text/event-stream:
+              schema:
+                type: string
+                description: Eventos SSE cuyo campo data contiene un objeto InventoryResponse.
+              examples:
+                products:
+                  value: |
+                    data: {"idProduct":"AC-1550","nameProduct":"Lentes","price":123.50,"stock":50}
+
+                    data: {"idProduct":"AC-1551","nameProduct":"Teclado","price":89.90,"stock":30}
+
+    post:
+      tags: [Inventories]
+      operationId: createInventory
+      summary: Crear un producto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryRequest'
+            examples:
+              product:
+                value:
+                  idProduct: PRD-1001
+                  nameProduct: Lentes
+                  price: 123.50
+                  stock: 50
+      responses:
+        '201':
+          description: Producto creado.
+          headers:
+            Location:
+              description: URI del producto creado, incluido el prefijo del servicio.
+              required: true
+              schema:
+                type: string
+                format: uri-reference
+              example: /services-inventory/inventories/PRD-1001
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryResponse'
+              examples:
+                created:
+                  value:
+                    idProduct: PRD-1001
+                    nameProduct: Lentes
+                    price: 123.50
+                    stock: 50
+        '400':
+          description: Datos de entrada inválidos o JSON mal formado.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              examples:
+                invalidStock:
+                  value:
+                    type: about:blank
+                    title: Solicitud inválida
+                    status: 400
+                    detail: Los datos de entrada no son válidos.
+                    instance: /services-inventory/inventories
+                    timestamp: '2026-10-02T15:00:00Z'
+                    errors:
+                      - field: stock
+                        message: El stock debe ser como mínimo 1.
+        '409':
+          description: Ya existe un producto con el código solicitado.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              examples:
+                duplicate:
+                  value:
+                    type: about:blank
+                    title: Producto duplicado
+                    status: 409
+                    detail: Ya existe un producto con código PRD-1001.
+                    instance: /services-inventory/inventories
+                    timestamp: '2026-10-02T15:00:00Z'
+  /inventories/{productId}:
+    parameters:
+      - name: productId
+        in: path
+        required: true
+        description: Código público del producto; corresponde a products.code.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 50
+          pattern: '^[A-Za-z0-9-]{1,50}$'
+        example: AC-1550
+    get:
+      tags: [Inventories]
+      operationId: getInventory
+      summary: Consultar un producto por código
+      responses:
+        '200':
+          description: Producto encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryResponse'
+              examples:
+                product:
+                  value:
+                    idProduct: AC-1550
+                    nameProduct: Lentes
+                    price: 123.50
+                    stock: 50
+        '400':
+          $ref: '#/components/responses/InvalidProductId'
+        '404':
+          $ref: '#/components/responses/ProductNotFound'
+    put:
+      tags: [Inventories]
+      operationId: decreaseInventory
+      summary: Descontar existencias de forma atómica
+      description: Descuenta orderCount unidades y devuelve el producto actualizado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderInvRequest'
+            examples:
+              order:
+                value:
+                  orderCount: 2
+      responses:
+        '200':
+          description: Stock descontado; representación actualizada del producto.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryResponse'
+              examples:
+                updated:
+                  value:
+                    idProduct: AC-1550
+                    nameProduct: Lentes
+                    price: 123.50
+                    stock: 48
+        '400':
+          description: productId, orderCount o JSON inválidos.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              examples:
+                invalidOrderCount:
+                  value:
+                    type: about:blank
+                    title: Solicitud inválida
+                    status: 400
+                    detail: Los datos de entrada no son válidos.
+                    instance: /services-inventory/inventories/AC-1550
+                    timestamp: '2026-10-02T15:00:00Z'
+                    errors:
+                      - field: orderCount
+                        message: La cantidad solicitada no puede superar 5.
+        '404':
+          $ref: '#/components/responses/ProductNotFound'
+        '409':
+          description: El producto existe, pero no tiene stock suficiente.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              examples:
+                insufficientStock:
+                  value:
+                    type: about:blank
+                    title: Stock insuficiente
+                    status: 409
+                    detail: 'Stock insuficiente para el producto AC-1550: cantidad solicitada 2.'
+                    instance: /services-inventory/inventories/AC-1550
+                    timestamp: '2026-10-02T15:00:00Z'
+components:
+  schemas:
+    InventoryRequest:
+      type: object
+      required: [idProduct, nameProduct, price, stock]
+      properties:
+        idProduct:
+          type: string
+          minLength: 1
+          maxLength: 50
+          pattern: '^[A-Za-z0-9-]{1,50}$'
+        nameProduct:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: '\S'
+          description: Nombre con al menos un carácter que no sea un espacio en blanco.
+        price:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 99999999.99
+          multipleOf: 0.01
+          description: Importe positivo con hasta ocho dígitos enteros y dos decimales.
+        stock:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 500
+    InventoryResponse:
+      type: object
+      required: [idProduct, nameProduct, price, stock]
+      properties:
+        idProduct:
+          type: string
+          minLength: 1
+          maxLength: 50
+          pattern: '^[A-Za-z0-9-]{1,50}$'
+        nameProduct:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: '\S'
+        price:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 99999999.99
+          multipleOf: 0.01
+        stock:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 500
+    OrderInvRequest:
+      type: object
+      required: [orderCount]
+      properties:
+        orderCount:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 5
+    ProblemDetail:
+      type: object
+      description: Problema HTTP RFC 9457 con extensiones de validación y fecha UTC.
+      required: [type, title, status, detail, instance, timestamp]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        errors:
+          type: array
+          description: Errores por campo; presente cuando hay errores de validación.
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+        timestamp:
+          type: string
+          format: date-time
+  responses:
+    ProductNotFound:
+      description: No existe un producto con el código solicitado.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          examples:
+            missing:
+              value:
+                type: about:blank
+                title: Producto no encontrado
+                status: 404
+                detail: No se encontró el producto con código AC-1550.
+                instance: /services-inventory/inventories/AC-1550
+                timestamp: '2026-10-02T15:00:00Z'
+    InvalidProductId:
+      description: El código del producto no tiene el formato requerido.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          examples:
+            invalidCode:
+              value:
+                type: about:blank
+                title: Solicitud inválida
+                status: 400
+                detail: Los datos de entrada no son válidos.
+                instance: /services-inventory/inventories/AC_1550
+                timestamp: '2026-10-02T15:00:00Z'
+                errors:
+                  - field: productId
+                    message: El código solo puede contener letras, números y guiones, entre 1 y 50 caracteres.
