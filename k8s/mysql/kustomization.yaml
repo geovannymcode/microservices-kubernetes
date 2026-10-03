@@ -1,0 +1,19 @@
+# Development database for minikube only. On EKS the service uses Amazon RDS (see overlays/eks).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: codearti
+resources:
+  - service.yaml
+  - statefulset.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: codearti-shop
+    includeTemplates: true
+secretGenerator:
+  # .env is git-ignored; copy .env.example (or run make k8s-secrets) and fill it in.
+  - name: mysql-credentials
+    envs:
+      - .env
+generatorOptions:
+  labels:
+    app.kubernetes.io/name: mysql

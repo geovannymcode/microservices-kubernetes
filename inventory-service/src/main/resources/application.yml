@@ -3,26 +3,39 @@ spring:
     name: service-inventory
   webflux:
     base-path: /services-inventory
-    problemdetails:
-      enabled: true
   lifecycle:
     timeout-per-shutdown-phase: 20s
+  jackson:
+    # The contract types orderCount and stock as integer and price as number. Without this,
+    # {"orderCount": 1.9} silently becomes 1 and {"orderCount": "3"} becomes 3, and stock is decreased.
+    deserialization:
+      accept-float-as-int: false
+    mapper:
+      allow-coercion-of-scalars: false
   reactor:
     # Restores the Micrometer observation (traceId/spanId in MDC) on every Reactor operator thread hop.
     context-propagation: auto
   # JDBC se utiliza únicamente para Flyway al arrancar; las operaciones de la app usan R2DBC.
   flyway:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:inventory}
-    user: ${DB_USER:inventory}
-    password: ${DB_PASSWORD:}
+    # Optional DDL-capable migration user (e.g. on RDS) so the runtime user only needs DML.
+    user: ${DB_MIGRATION_USER:${DB_USER:inventory}}
+    password: ${DB_MIGRATION_PASSWORD:${DB_PASSWORD:}}
   r2dbc:
     url: r2dbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:inventory}
     username: ${DB_USER:inventory}
     password: ${DB_PASSWORD:}
+    # Bounded waits: with the pool exhausted or MySQL unresponsive, requests fail fast (503) instead of
+    # queueing forever. acquire-retry (default 1) doubles the acquire wait, so 1 s gives ~2 s worst case,
+    # inside the readiness probe's 3 s timeout.
     pool:
       initial-size: 2
       max-size: 10
       max-idle-time: 30m
+      max-life-time: 30m
+      max-acquire-time: 1s
+      max-create-connection-time: 2s
+      max-validation-time: 1s
 
 server:
   port: 8080

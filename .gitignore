@@ -4,3 +4,5 @@
 target/
 .DS_Store
 docs/
+CODE_REVIEW.md
+.github/modernize/

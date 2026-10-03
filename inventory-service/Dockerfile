@@ -4,7 +4,7 @@
 # docker compose passes the same context through build.additional_contexts.
 
 ARG JDK_IMAGE=eclipse-temurin:25-jdk@sha256:8c0a84ea11c8f6ed52600fc19f1040121f2a162998e9f50a5faebbbad9172dcc
-ARG RUNTIME_IMAGE=gcr.io/distroless/java-base-debian13@sha256:95b07faf3215f3bc9e2d33c22b0849f974df2c7418132a4514b50393fc915bdc
+ARG RUNTIME_IMAGE=gcr.io/distroless/cc-debian13@sha256:159783207c2cd44c2aa5715961d13c8612368ac9bd450f887e3f08fc8ea461e3
 
 # --- build: compile and package without tests (CI runs ./mvnw verify separately) ---
 FROM ${JDK_IMAGE} AS build

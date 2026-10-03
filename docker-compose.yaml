@@ -42,7 +42,7 @@ services:
       TRACING_SAMPLING: ${TRACING_SAMPLING:-1.0}
     ports:
       - "127.0.0.1:${INVENTORY_PORT:-8080}:8080"
-    # The distroless image has no shell, curl or wget: a 1 KB Java class performs the HTTP check.
+    # The distroless image has no shell, curl or wget: a 1.5 KB Java class performs the HTTP check.
     healthcheck:
       test: ["CMD", "java", "-XX:TieredStopAtLevel=1", "-XX:+UseSerialGC", "-Xmx16m", "-cp", "/app/healthcheck",
              "HealthCheck", "http://localhost:8080/services-inventory/actuator/health/readiness"]

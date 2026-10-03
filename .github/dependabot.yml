@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: maven
+    directory: /inventory-service
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /inventory-service
+    schedule:
+      interval: weekly

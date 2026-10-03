@@ -11,3 +11,7 @@ logging:
       rename:
         traceId: trace.id
         spanId: span.id
+
+# DB_HOST/DB_PORT/DB_NAME come from the ConfigMap and DB_USER/DB_PASSWORD from the Secret (application.yml
+# resolves them). Readiness already includes r2dbc (application.yml), so a database outage removes the pod
+# from the Service endpoints without restarting it. spring-boot-docker-compose is not on the classpath.

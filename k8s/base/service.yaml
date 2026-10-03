@@ -1,0 +1,16 @@
+# In-cluster DNS for Order: http://service-inventory.codearti.svc.cluster.local/services-inventory
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-inventory
+  labels:
+    app.kubernetes.io/name: service-inventory
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: service-inventory
+  ports:
+    - name: http   # Istio infers the protocol from the port name.
+      port: 80
+      targetPort: http
+      protocol: TCP

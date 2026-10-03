@@ -18,6 +18,7 @@
         <!-- Actualizaciones de seguridad sobre las versiones gestionadas por Boot 4.1.1. -->
         <mysql.version>26.7.0</mysql.version>
         <jackson-bom.version>3.1.7</jackson-bom.version>
+        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
     </properties>
     <dependencies>
         <dependency>
@@ -197,6 +198,27 @@
                                 <requestMappingMode>none</requestMappingMode>
                                 <hideGenerationTimestamp>true</hideGenerationTimestamp>
                             </configOptions>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <!-- Ships the contract in the jar so /v3/api-docs takes its info block from the single source of truth. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-contract</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/contract</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../contracts</directory>
+                                    <includes><include>services-inventory.yaml</include></includes>
+                                </resource>
+                            </resources>
                         </configuration>
                     </execution>
                 </executions>

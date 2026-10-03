@@ -1,0 +1,14 @@
+# maxUnavailable 1 never blocks a node drain with a single replica; the eks overlay tightens it.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: service-inventory
+  labels:
+    app.kubernetes.io/name: service-inventory
+spec:
+  maxUnavailable: 1
+  # A crash-looping pod must not block node drains.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: service-inventory

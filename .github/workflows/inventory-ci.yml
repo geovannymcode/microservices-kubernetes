@@ -1,0 +1,94 @@
+name: inventory-ci
+
+on:
+  push:
+    branches: [main]
+    paths: ["inventory-service/**", "contracts/**", ".github/workflows/inventory-ci.yml"]
+  pull_request:
+    paths: ["inventory-service/**", "contracts/**", ".github/workflows/inventory-ci.yml"]
+
+# Least privilege by default: only the image job may write packages, and it never runs the test suite.
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: inventory-service
+    steps:
+      # Actions are pinned by commit SHA (tags are mutable); Dependabot keeps them current.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      # Unit tests, Testcontainers ITs (Docker is available on ubuntu-latest) and the JaCoCo gate.
+      - run: ./mvnw -B verify
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-and-coverage-reports
+          path: |
+            inventory-service/target/surefire-reports
+            inventory-service/target/failsafe-reports
+            inventory-service/target/site/jacoco
+
+  image:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SCAN_TAG: service-inventory:scan
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/service-inventory
+          tags: |
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+      # Build once into the local daemon so the exact image can be scanned before anything is pushed.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: inventory-service
+          build-contexts: contracts=contracts
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.SCAN_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.SCAN_TAG }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - if: github.event_name == 'push'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Same inputs and cache as the scanned build, so this reuses its layers instead of rebuilding.
+      - if: github.event_name == 'push'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: inventory-service
+          build-contexts: contracts=contracts
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
