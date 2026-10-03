@@ -1,0 +1,75 @@
+spring:
+  application:
+    name: service-inventory
+  webflux:
+    base-path: /services-inventory
+    problemdetails:
+      enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  reactor:
+    # Restores the Micrometer observation (traceId/spanId in MDC) on every Reactor operator thread hop.
+    context-propagation: auto
+  # JDBC se utiliza únicamente para Flyway al arrancar; las operaciones de la app usan R2DBC.
+  flyway:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:inventory}
+    user: ${DB_USER:inventory}
+    password: ${DB_PASSWORD:}
+  r2dbc:
+    url: r2dbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:inventory}
+    username: ${DB_USER:inventory}
+    password: ${DB_PASSWORD:}
+    pool:
+      initial-size: 2
+      max-size: 10
+      max-idle-time: 30m
+
+server:
+  port: 8080
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+      group:
+        # Liveness ignores MySQL: restarting the pod does not fix a database outage.
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,r2dbc
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      # Buckets instead of client-side percentiles: Prometheus computes p50/p95/p99 with
+      # histogram_quantile() and, unlike client percentiles, they aggregate across pods.
+      percentiles-histogram:
+        "[http.server.requests]": true
+      slo:
+        "[http.server.requests]": 100ms,300ms,1s
+  # Prometheus scrapes /actuator/prometheus; OTLP push stays off unless OTEL_METRICS_EXPORTER=otlp.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs

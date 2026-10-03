@@ -1,0 +1,13 @@
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        version: @project.version@
+        environment: k8s
+    json:
+      # ECS names for the Micrometer MDC keys so Kibana/Loki correlate logs with Jaeger/Tempo traces.
+      rename:
+        traceId: trace.id
+        spanId: span.id

@@ -1,0 +1,20 @@
+# Only what differs inside Compose: the database host is the mysql service and logs are ECS JSON.
+spring:
+  flyway:
+    url: jdbc:mysql://${DB_HOST:mysql}:${DB_PORT:3306}/${DB_NAME:inventory}
+  r2dbc:
+    url: r2dbc:mysql://${DB_HOST:mysql}:${DB_PORT:3306}/${DB_NAME:inventory}
+
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        version: @project.version@
+        environment: docker
+    json:
+      # ECS names for the Micrometer MDC keys so Kibana/Loki correlate logs with Jaeger/Tempo traces.
+      rename:
+        traceId: trace.id
+        spanId: span.id

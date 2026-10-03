@@ -1,0 +1,2 @@
+JDK 25 LTS (Eclipse Temurin): https://adoptium.net/temurin/releases/?version=25
+Docker Desktop: https://www.docker.com/products/docker-desktop/
