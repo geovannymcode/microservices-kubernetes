@@ -51,7 +51,7 @@ final class InventoryDtoValidationTest {
 
     @ParameterizedTest
     @NullAndEmptySource
-    @ValueSource(strings = {" ", "AC_1550", "AC/1550", "á", "AC 1550", "AC-1550\n"})
+    @ValueSource(strings = {" ", "AC_1550", "AC/1550", "á", "AC 1550", "AC-1550\n", "ac-1550", "Ac-1550"})
     void rejectsInvalidCodes(String code) {
         assertValid(new InventoryRequest(code, "Lentes", BigDecimal.ONE, 1), false);
         assertValid(new InventoryResponse(code, "Lentes", BigDecimal.ONE, 0), false);

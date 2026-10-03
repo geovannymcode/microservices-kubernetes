@@ -50,35 +50,27 @@ final class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void invalidReturnValueIsServerError() {
-        var error = org.mockito.Mockito.mock(org.springframework.web.method.annotation.HandlerMethodValidationException.class);
-        org.mockito.Mockito.when(error.isForReturnValue()).thenReturn(true);
-        var exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/inventories"));
-        StepVerifier.create(new GlobalExceptionHandler().handleHandlerMethodValidationException(error,
-                new org.springframework.http.HttpHeaders(), HttpStatus.INTERNAL_SERVER_ERROR, exchange))
-                .assertNext(response -> assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR))
-                .verifyComplete();
+    void databaseOutageIsServiceUnavailableButRejectedStatementIsServerError() {
+        var handler = new GlobalExceptionHandler();
+        var connectionRefused = new org.springframework.dao.DataAccessResourceFailureException("Failed to obtain R2DBC Connection",
+                new io.r2dbc.spi.R2dbcNonTransientResourceException("Connection refused"));
+        var lockWaitTimeout = new org.springframework.dao.DataAccessResourceFailureException("executeMany",
+                new io.r2dbc.spi.R2dbcNonTransientResourceException("Lock wait timeout exceeded", "HY000", 1205));
+        var checkViolated = new org.springframework.dao.DataAccessResourceFailureException("executeMany",
+                new io.r2dbc.spi.R2dbcNonTransientResourceException("Check constraint 'ck_products_code_format' is violated.",
+                        "HY000", 3819));
+        assertStatus(handler.databaseUnavailable(connectionRefused, exchange()), HttpStatus.SERVICE_UNAVAILABLE);
+        assertStatus(handler.databaseUnavailable(lockWaitTimeout, exchange()), HttpStatus.SERVICE_UNAVAILABLE);
+        assertStatus(handler.databaseUnavailable(checkViolated, exchange()), HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
-    @Test
-    void methodValidationPreservesFieldErrorsAndNamesUnnamedParameters() {
-        var error = org.mockito.Mockito.mock(org.springframework.web.method.annotation.HandlerMethodValidationException.class);
-        var result = org.mockito.Mockito.mock(org.springframework.validation.method.ParameterValidationResult.class);
-        var parameter = org.mockito.Mockito.mock(org.springframework.core.MethodParameter.class);
-        org.mockito.Mockito.when(result.getMethodParameter()).thenReturn(parameter);
-        org.mockito.Mockito.when(result.getResolvableErrors()).thenReturn(java.util.List.of(
-                new org.springframework.validation.FieldError("request", "stock", "Stock inválido."),
-                new org.springframework.context.support.DefaultMessageSourceResolvable("invalid")));
-        org.mockito.Mockito.when(error.getParameterValidationResults()).thenReturn(java.util.List.of(result));
-        var exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/inventories"));
-        StepVerifier.create(new GlobalExceptionHandler().handleHandlerMethodValidationException(error,
-                new org.springframework.http.HttpHeaders(), HttpStatus.BAD_REQUEST, exchange))
-                .assertNext(response -> {
-                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-                    var detail = (ProblemDetail) response.getBody();
-                    assertThat(detail.getProperties().get("errors")).isEqualTo(java.util.List.of(
-                            new GlobalExceptionHandler.ValidationError("stock", "Stock inválido."),
-                            new GlobalExceptionHandler.ValidationError("request", "Valor inválido.")));
-                }).verifyComplete();
+    private static MockServerWebExchange exchange() {
+        return MockServerWebExchange.from(MockServerHttpRequest.put("/services-inventory/inventories/AC-1550"));
+    }
+
+    private static void assertStatus(reactor.core.publisher.Mono<org.springframework.http.ResponseEntity<Object>> response,
+                                     HttpStatus expected) {
+        StepVerifier.create(response).assertNext(entity -> assertThat(entity.getStatusCode()).isEqualTo(expected))
+                .verifyComplete();
     }
 }

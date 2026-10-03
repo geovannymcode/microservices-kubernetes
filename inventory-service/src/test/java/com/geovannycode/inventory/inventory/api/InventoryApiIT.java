@@ -132,11 +132,69 @@ final class InventoryApiIT {
     @Test
     void transactionKeepsEachReadConsistentWithItsConcurrentDecrement() {
         String code = register(10);
-        StepVerifier.create(Flux.range(0, 10).flatMap(ignored -> service.decreaseStock(code, 1), 10)
+        StepVerifier.create(Flux.range(0, 10).flatMap(ignored -> service.decreaseStock(code, 1, null), 10)
                         .map(InventoryResponse::stock).collectList())
                 .assertNext(stocks -> assertThat(stocks).containsExactlyInAnyOrderElementsOf(
                         IntStream.range(0, 10).boxed().toList()))
                 .expectComplete().verify(Duration.ofSeconds(10));
+    }
+
+    @Test
+    void rejectsLowercaseProductCodesInsteadOfTreatingThemAsAliases() {
+        client.get().uri(PATH + "/ac-1550").exchange().expectStatus().isBadRequest()
+                .expectBody().jsonPath("$.errors[0].field").isEqualTo("productId");
+        client.put().uri(PATH + "/ac-1550").bodyValue(new OrderInvRequest(1)).exchange().expectStatus().isBadRequest();
+        client.post().uri(PATH).bodyValue(new InventoryRequest("prd-" + UUID.randomUUID(), "Lentes", BigDecimal.ONE, 1))
+                .exchange().expectStatus().isBadRequest()
+                .expectBody().jsonPath("$.errors[0].field").isEqualTo("idProduct");
+        client.get().uri(PATH + "/AC-1550").exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.stock").isEqualTo(50);
+    }
+
+    @Test
+    void retryWithSameIdempotencyKeyDecreasesOnlyOnce() {
+        String code = register(10);
+        String key = "it-" + UUID.randomUUID();
+        for (int attempt = 0; attempt < 2; attempt++) {
+            decrease(code, 2, key).expectStatus().isOk().expectBody().jsonPath("$.stock").isEqualTo(8);
+        }
+        client.get().uri(PATH + "/" + code).exchange().expectBody().jsonPath("$.stock").isEqualTo(8);
+        decrease(code, 3, key).expectStatus().isEqualTo(422)
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody().jsonPath("$.type").isEqualTo("https://codearti.com/problems/idempotency-key-reused");
+        client.get().uri(PATH + "/" + code).exchange().expectBody().jsonPath("$.stock").isEqualTo(8);
+    }
+
+    @Test
+    void failedDecreaseDoesNotConsumeIdempotencyKey() {
+        String code = register(1);
+        String key = "it-" + UUID.randomUUID();
+        decrease(code, 2, key).expectStatus().isEqualTo(409);
+        decrease(code, 1, key).expectStatus().isOk().expectBody().jsonPath("$.stock").isEqualTo(0);
+    }
+
+    @Test
+    void concurrentRetriesWithSameIdempotencyKeyDecreaseOnlyOnce() {
+        String code = register(10);
+        String key = "it-" + UUID.randomUUID();
+        StepVerifier.create(Flux.range(0, 10).flatMap(ignored -> service.decreaseStock(code, 1, key), 10)
+                        .map(InventoryResponse::stock).collectList())
+                .assertNext(stocks -> assertThat(stocks).hasSize(10).containsOnly(9))
+                .expectComplete().verify(Duration.ofSeconds(15));
+        client.get().uri(PATH + "/" + code).exchange().expectBody().jsonPath("$.stock").isEqualTo(9);
+    }
+
+    @Test
+    void paginatesTheCatalogInCodeOrder() {
+        var firstPage = client.get().uri(PATH + "?page=0&size=2").accept(MediaType.APPLICATION_JSON).exchange()
+                .expectStatus().isOk().expectBodyList(InventoryResponse.class).returnResult().getResponseBody();
+        var secondPage = client.get().uri(PATH + "?page=1&size=2").accept(MediaType.APPLICATION_JSON).exchange()
+                .expectStatus().isOk().expectBodyList(InventoryResponse.class).returnResult().getResponseBody();
+        assertThat(firstPage).extracting(InventoryResponse::idProduct).hasSize(2).isSorted();
+        assertThat(secondPage).extracting(InventoryResponse::idProduct).hasSize(2).isSorted();
+        assertThat(secondPage.getFirst().idProduct()).isGreaterThan(firstPage.getLast().idProduct());
+        client.get().uri(PATH + "?size=101").exchange().expectStatus().isBadRequest()
+                .expectBody().jsonPath("$.errors[0].field").isEqualTo("size");
     }
 
     @Test
@@ -195,10 +253,15 @@ final class InventoryApiIT {
     void exposesSwaggerAndOpenApiUnderServicePrefix() {
         client.get().uri("/services-inventory/swagger-ui.html").exchange().expectStatus().is3xxRedirection();
         client.get().uri("/services-inventory/v3/api-docs").exchange().expectStatus().isOk()
-                .expectBody().jsonPath("$.info.version").isEqualTo("1.1.0")
+                .expectBody().jsonPath("$.info.version").isEqualTo("2.0.0")
                 .jsonPath("$.servers[0].url").isEqualTo("/services-inventory")
                 .jsonPath("$.paths['/inventories'].post.responses['201']").exists()
                 .jsonPath("$.paths['/inventories/{productId}'].put.responses['409']").exists();
+    }
+
+    private WebTestClient.ResponseSpec decrease(String code, int count, String idempotencyKey) {
+        return client.put().uri(PATH + "/" + code).header("Idempotency-Key", idempotencyKey)
+                .bodyValue(new OrderInvRequest(count)).exchange();
     }
 
     private String register(int stock) {
@@ -209,6 +272,6 @@ final class InventoryApiIT {
     }
 
     private String code() {
-        return "HTTP-" + UUID.randomUUID();
+        return "HTTP-" + UUID.randomUUID().toString().toUpperCase();
     }
 }

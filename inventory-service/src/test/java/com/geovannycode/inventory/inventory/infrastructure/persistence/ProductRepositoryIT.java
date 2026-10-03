@@ -52,6 +52,15 @@ final class ProductRepositoryIT {
     }
 
     @Test
+    void databaseRejectsLowercaseCodesThatBypassTheApi() {
+        var lowercase = new ProductEntity(null, "it-" + UUID.randomUUID(), "Minúsculas", new BigDecimal("10.00"), 1);
+        // r2dbc-mysql surfaces error 3819 as a resource failure, not an integrity violation; the handler maps it to 500.
+        StepVerifier.create(repository.save(lowercase))
+                .expectErrorSatisfies(error -> assertThat(error).hasMessageContaining("ck_products_code_format"))
+                .verify(TIMEOUT);
+    }
+
+    @Test
     void decreaseStockUpdatesProductWhenStockIsSufficient() {
         StepVerifier.create(createProduct(10).flatMap(product ->
                 repository.decreaseStock(product.code(), 4)
@@ -73,7 +82,7 @@ final class ProductRepositoryIT {
 
     @Test
     void decreaseStockReturnsZeroForMissingProduct() {
-        StepVerifier.create(repository.decreaseStock("MISSING-" + UUID.randomUUID(), 1))
+        StepVerifier.create(repository.decreaseStock("MISSING-" + UUID.randomUUID().toString().toUpperCase(), 1))
                 .expectNext(0).expectComplete().verify(TIMEOUT);
     }
 
@@ -94,7 +103,7 @@ final class ProductRepositoryIT {
 
     private Mono<ProductEntity> createProduct(int stock) {
         // Cada caso modifica su propia fila; el contenedor se descarta al finalizar.
-        return repository.save(new ProductEntity(null, "IT-" + UUID.randomUUID(),
+        return repository.save(new ProductEntity(null, "IT-" + UUID.randomUUID().toString().toUpperCase(),
                 "Producto de prueba", new BigDecimal("10.00"), stock));
     }
 }

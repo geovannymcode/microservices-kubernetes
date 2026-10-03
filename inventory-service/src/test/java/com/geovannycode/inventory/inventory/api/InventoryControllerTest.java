@@ -31,7 +31,7 @@ final class InventoryControllerTest {
         return new InventoryRequest("PRD-1", "Lentes", new BigDecimal("123.50"), stock);
     }
     @Test void listsJsonArray() {
-        when(service.findAll()).thenReturn(Flux.just(FIRST, SECOND));
+        when(service.findAll(0, 20)).thenReturn(Flux.just(FIRST, SECOND));
         client.get().uri(PATH).accept(MediaType.APPLICATION_JSON).exchange().expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
                 .expectBodyList(InventoryResponse.class).contains(FIRST, SECOND).hasSize(2);
@@ -50,7 +50,7 @@ final class InventoryControllerTest {
                 .expectBody(InventoryResponse.class).isEqualTo(FIRST);
     }
     @Test void decreasesStock() {
-        when(service.decreaseStock("PRD-1", 1)).thenReturn(Mono.just(FIRST));
+        when(service.decreaseStock("PRD-1", 1, null)).thenReturn(Mono.just(FIRST));
         client.put().uri(PATH + "/PRD-1").bodyValue(new OrderInvRequest(1)).exchange().expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
                 .expectBody(InventoryResponse.class).isEqualTo(FIRST);
@@ -64,7 +64,7 @@ final class InventoryControllerTest {
         assertProblem(client.post().uri(PATH).bodyValue(request(10)).exchange(), 409, "duplicate-product", "Producto duplicado");
     }
     @Test void reportsInsufficientStock() {
-        when(service.decreaseStock("PRD-1", 1)).thenReturn(Mono.error(new InsufficientStockException("PRD-1", 1)));
+        when(service.decreaseStock("PRD-1", 1, null)).thenReturn(Mono.error(new InsufficientStockException("PRD-1", 1)));
         assertProblem(client.put().uri(PATH + "/PRD-1").bodyValue(new OrderInvRequest(1)).exchange(), 409,
                 "insufficient-stock", "Stock insuficiente");
     }
@@ -78,6 +78,55 @@ final class InventoryControllerTest {
                 "validation-error", "Solicitud inválida").jsonPath("$.errors[0].field").isEqualTo("orderCount");
         verifyNoInteractions(service);
     }
+    @Test void forwardsPaginationToTheServiceForEveryRepresentation() {
+        when(service.findAll(2, 5)).thenReturn(Flux.just(SECOND));
+        for (MediaType type : new MediaType[]{MediaType.APPLICATION_JSON, MediaType.APPLICATION_NDJSON, MediaType.TEXT_EVENT_STREAM}) {
+            client.get().uri(PATH + "?page=2&size=5").accept(type).exchange().expectStatus().isOk();
+        }
+        verify(service, times(3)).findAll(2, 5);
+    }
+    @Test void rejectsPageSizeAboveLimitAndNegativePage() {
+        assertProblem(client.get().uri(PATH + "?size=101").exchange(), 400, "validation-error", "Solicitud inválida")
+                .jsonPath("$.errors[0].field").isEqualTo("size");
+        assertProblem(client.get().uri(PATH + "?page=-1").accept(MediaType.APPLICATION_NDJSON).exchange(), 400,
+                "validation-error", "Solicitud inválida").jsonPath("$.errors[0].field").isEqualTo("page");
+        verifyNoInteractions(service);
+    }
+    @Test void forwardsIdempotencyKeyHeader() {
+        when(service.decreaseStock("PRD-1", 1, "order-9")).thenReturn(Mono.just(FIRST));
+        client.put().uri(PATH + "/PRD-1").header("Idempotency-Key", "order-9").bodyValue(new OrderInvRequest(1))
+                .exchange().expectStatus().isOk().expectBody(InventoryResponse.class).isEqualTo(FIRST);
+    }
+    @Test void rejectsInvalidIdempotencyKey() {
+        assertProblem(client.put().uri(PATH + "/PRD-1").header("Idempotency-Key", "not valid!")
+                .bodyValue(new OrderInvRequest(1)).exchange(), 400, "validation-error", "Solicitud inválida")
+                .jsonPath("$.errors[0].field").isEqualTo("idempotencyKey");
+        verifyNoInteractions(service);
+    }
+    @Test void reportsReusedIdempotencyKey() {
+        when(service.decreaseStock("PRD-1", 1, "order-9")).thenReturn(Mono.error(new IdempotencyKeyReusedException("order-9")));
+        assertProblem(client.put().uri(PATH + "/PRD-1").header("Idempotency-Key", "order-9")
+                .bodyValue(new OrderInvRequest(1)).exchange(), 422, "idempotency-key-reused", "Clave de idempotencia reutilizada");
+    }
+    @Test void rejectsFractionalOrderCountInsteadOfTruncatingIt() {
+        assertProblem(client.put().uri(PATH + "/PRD-1").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"orderCount\":1.9}").exchange(), 400, "invalid-request", "Solicitud inválida");
+        verifyNoInteractions(service);
+    }
+    @Test void rejectsQuotedOrderCountInsteadOfCoercingIt() {
+        assertProblem(client.put().uri(PATH + "/PRD-1").contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"orderCount\":\"3\"}").exchange(), 400, "invalid-request", "Solicitud inválida");
+        verifyNoInteractions(service);
+    }
+    @Test void rejectsQuotedPriceAndFractionalStockOnCreate() {
+        assertProblem(client.post().uri(PATH).contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"idProduct\":\"PRD-1\",\"nameProduct\":\"Lentes\",\"price\":\"1.00\",\"stock\":10}")
+                .exchange(), 400, "invalid-request", "Solicitud inválida");
+        assertProblem(client.post().uri(PATH).contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"idProduct\":\"PRD-1\",\"nameProduct\":\"Lentes\",\"price\":1.00,\"stock\":10.5}")
+                .exchange(), 400, "invalid-request", "Solicitud inválida");
+        verifyNoInteractions(service);
+    }
     @Test void rejectsMalformedJson() {
         assertProblem(client.post().uri(PATH).contentType(MediaType.APPLICATION_JSON).bodyValue("{").exchange(),
                 400, "invalid-request", "Solicitud inválida");
@@ -86,13 +135,13 @@ final class InventoryControllerTest {
         assertProblem(client.delete().uri(PATH + "/PRD-1").exchange(), 405, "http-405", "Solicitud rechazada");
     }
     @Test void streamsAllNdjsonElements() {
-        when(service.findAll()).thenReturn(Flux.just(FIRST, SECOND));
+        when(service.findAll(0, 20)).thenReturn(Flux.just(FIRST, SECOND));
         var result = client.get().uri(PATH).accept(MediaType.APPLICATION_NDJSON).exchange().expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_NDJSON).returnResult(InventoryResponse.class);
         StepVerifier.create(result.getResponseBody()).expectNext(FIRST, SECOND).expectComplete().verify(Duration.ofSeconds(5));
     }
     @Test void streamsEventIdsNamesAndData() {
-        when(service.findAll()).thenReturn(Flux.just(FIRST, SECOND));
+        when(service.findAll(0, 20)).thenReturn(Flux.just(FIRST, SECOND));
         var type = new ParameterizedTypeReference<ServerSentEvent<InventoryResponse>>() { };
         var result = client.get().uri(PATH).accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM).returnResult(type);

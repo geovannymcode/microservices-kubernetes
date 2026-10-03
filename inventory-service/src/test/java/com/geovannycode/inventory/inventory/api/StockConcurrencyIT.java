@@ -29,7 +29,7 @@ final class StockConcurrencyIT {
         concurrentClient = WebClient.builder().baseUrl(baseUrl).build();
     }
     @Test void fiftyConcurrentOrdersCannotOversellTenUnits() {
-        String code = "RACE-" + UUID.randomUUID();
+        String code = "RACE-" + UUID.randomUUID().toString().toUpperCase();
         client.post().uri(PATH).bodyValue(new InventoryRequest(code, "Concurrencia", new BigDecimal("1.00"), 10))
                 .exchange().expectStatus().isCreated();
         var requests = Flux.range(0, 50).flatMap(ignored -> concurrentClient.put().uri(PATH + "/" + code)

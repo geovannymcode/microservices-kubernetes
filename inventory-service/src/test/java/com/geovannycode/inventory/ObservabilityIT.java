@@ -108,7 +108,7 @@ final class ObservabilityIT {
     }
 
     private String register(int stock) {
-        String code = "OBS-" + UUID.randomUUID();
+        String code = "OBS-" + UUID.randomUUID().toString().toUpperCase();
         client.post().uri(PATH).bodyValue(new InventoryRequest(code, "Observabilidad", new BigDecimal("1.00"), stock))
                 .exchange().expectStatus().isCreated();
         return code;
