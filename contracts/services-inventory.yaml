@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: Inventory Service
-  version: 1.1.0
+  version: 2.0.0
   description: >-
-    Contrato del inventario reactivo. idProduct y productId identifican products.code;
-    la clave interna products.id nunca se expone. PUT descuenta unidades y no es
-    idempotente: no debe reintentarse automáticamente tras una respuesta incierta.
+    Contrato del inventario reactivo. idProduct y productId identifican products.code
+    (solo mayúsculas, números y guiones); la clave interna products.id nunca se expone.
+    PUT descuenta unidades: envía Idempotency-Key para que los reintentos sean seguros;
+    sin ella no debe reintentarse automáticamente tras una respuesta incierta.
 servers:
   - url: /services-inventory
     description: Prefijo del servicio
@@ -19,7 +20,29 @@ paths:
       tags: [Inventories]
       operationId: listInventories
       summary: Listar productos ordenados por código
+      description: >-
+        Paginado por page/size en las tres representaciones (JSON, NDJSON y SSE). Para recorrer el
+        catálogo completo, pide páginas sucesivas hasta recibir menos de size elementos.
       parameters:
+        - name: page
+          in: query
+          required: false
+          description: Número de página, empezando en 0.
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          description: Elementos por página.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
         - name: delayMs
           in: query
           required: false
@@ -59,14 +82,36 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: Eventos SSE cuyo campo data contiene un objeto InventoryResponse.
+                description: Eventos SSE "inventory" con id igual al código del producto; data contiene un InventoryResponse.
               examples:
                 products:
                   value: |
+                    id: AC-1550
+                    event: inventory
                     data: {"idProduct":"AC-1550","nameProduct":"Lentes","price":123.50,"stock":50}
 
+                    id: AC-1551
+                    event: inventory
                     data: {"idProduct":"AC-1551","nameProduct":"Teclado","price":89.90,"stock":30}
 
+        '400':
+          description: delayMs fuera de 0..2000, page negativo o size fuera de 1..100.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              examples:
+                invalidDelay:
+                  value:
+                    type: https://codearti.com/problems/validation-error
+                    title: Solicitud inválida
+                    status: 400
+                    detail: Los datos de entrada no son válidos.
+                    instance: /services-inventory/inventories
+                    timestamp: '2026-10-02T15:00:00Z'
+                    errors:
+                      - field: delayMs
+                        message: La demora debe estar entre 0 y 2000 ms.
     post:
       tags: [Inventories]
       operationId: createInventory
@@ -115,7 +160,7 @@ paths:
               examples:
                 invalidStock:
                   value:
-                    type: about:blank
+                    type: https://codearti.com/problems/validation-error
                     title: Solicitud inválida
                     status: 400
                     detail: Los datos de entrada no son válidos.
@@ -133,7 +178,7 @@ paths:
               examples:
                 duplicate:
                   value:
-                    type: about:blank
+                    type: https://codearti.com/problems/duplicate-product
                     title: Producto duplicado
                     status: 409
                     detail: Ya existe un producto con código PRD-1001.
@@ -149,7 +194,7 @@ paths:
           type: string
           minLength: 1
           maxLength: 50
-          pattern: '^[A-Za-z0-9-]{1,50}$'
+          pattern: '^[A-Z0-9-]{1,50}$'
         example: AC-1550
     get:
       tags: [Inventories]
@@ -177,7 +222,21 @@ paths:
       tags: [Inventories]
       operationId: decreaseInventory
       summary: Descontar existencias de forma atómica
-      description: Descuenta orderCount unidades y devuelve el producto actualizado.
+      description: >-
+        Descuenta orderCount unidades y devuelve el producto actualizado. Con Idempotency-Key, un reintento
+        con la misma clave y el mismo cuerpo no vuelve a descontar: responde 200 con el estado actual del
+        producto. Solo se registran los descuentos aplicados; un 404 o 409 puede reintentarse con la misma clave.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Clave única por pedido (por ejemplo, el id de la orden o un UUID). Recomendada para clientes con reintentos.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+            pattern: '^[A-Za-z0-9_-]{1,64}$'
+          example: order-7f3c2a90
       requestBody:
         required: true
         content:
@@ -211,7 +270,7 @@ paths:
               examples:
                 invalidOrderCount:
                   value:
-                    type: about:blank
+                    type: https://codearti.com/problems/validation-error
                     title: Solicitud inválida
                     status: 400
                     detail: Los datos de entrada no son válidos.
@@ -231,10 +290,25 @@ paths:
               examples:
                 insufficientStock:
                   value:
-                    type: about:blank
+                    type: https://codearti.com/problems/insufficient-stock
                     title: Stock insuficiente
                     status: 409
                     detail: 'Stock insuficiente para el producto AC-1550: cantidad solicitada 2.'
+                    instance: /services-inventory/inventories/AC-1550
+                    timestamp: '2026-10-02T15:00:00Z'
+        '422':
+          description: La Idempotency-Key ya se usó con otro producto u otra cantidad.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              examples:
+                idempotencyKeyReused:
+                  value:
+                    type: https://codearti.com/problems/idempotency-key-reused
+                    title: Clave de idempotencia reutilizada
+                    status: 422
+                    detail: La clave order-7f3c2a90 ya se usó con otra solicitud.
                     instance: /services-inventory/inventories/AC-1550
                     timestamp: '2026-10-02T15:00:00Z'
 components:
@@ -247,7 +321,7 @@ components:
           type: string
           minLength: 1
           maxLength: 50
-          pattern: '^[A-Za-z0-9-]{1,50}$'
+          pattern: '^[A-Z0-9-]{1,50}$'
         nameProduct:
           type: string
           minLength: 1
@@ -273,7 +347,7 @@ components:
           type: string
           minLength: 1
           maxLength: 50
-          pattern: '^[A-Za-z0-9-]{1,50}$'
+          pattern: '^[A-Z0-9-]{1,50}$'
         nameProduct:
           type: string
           minLength: 1
@@ -341,7 +415,7 @@ components:
           examples:
             missing:
               value:
-                type: about:blank
+                type: https://codearti.com/problems/product-not-found
                 title: Producto no encontrado
                 status: 404
                 detail: No se encontró el producto con código AC-1550.
@@ -356,7 +430,7 @@ components:
           examples:
             invalidCode:
               value:
-                type: about:blank
+                type: https://codearti.com/problems/validation-error
                 title: Solicitud inválida
                 status: 400
                 detail: Los datos de entrada no son válidos.
@@ -364,4 +438,4 @@ components:
                 timestamp: '2026-10-02T15:00:00Z'
                 errors:
                   - field: productId
-                    message: El código solo puede contener letras, números y guiones, entre 1 y 50 caracteres.
+                    message: El código solo puede contener letras mayúsculas, números y guiones, entre 1 y 50 caracteres.

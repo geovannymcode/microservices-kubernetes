@@ -14,7 +14,7 @@ import jakarta.validation.constraints.Size;
 public record InventoryResponse(
         @NotBlank(message = "El código es obligatorio.")
         @Size(min = 1, max = 50, message = "El código debe tener entre 1 y 50 caracteres.")
-        @Pattern(regexp = "^[A-Za-z0-9-]{1,50}$", message = "El código solo puede contener letras, números y guiones.")
+        @Pattern(regexp = "^[A-Z0-9-]{1,50}$", message = "El código solo puede contener letras mayúsculas, números y guiones.")
         String idProduct,
         @NotBlank(message = "El nombre es obligatorio.")
         @Size(min = 1, max = 200, message = "El nombre debe tener entre 1 y 200 caracteres.")

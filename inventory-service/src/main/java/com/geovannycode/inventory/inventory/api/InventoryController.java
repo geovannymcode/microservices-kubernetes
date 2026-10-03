@@ -9,6 +9,7 @@ import com.geovannycode.inventory.inventory.api.generated.InventoriesApi;
 import com.geovannycode.inventory.inventory.application.InventoryService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.ServerSentEvent;
@@ -37,24 +38,25 @@ public class InventoryController implements InventoriesApi {
 
     @Override
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public Mono<ResponseEntity<Flux<InventoryResponse>>> listInventories(Integer delayMs, ServerWebExchange exchange) {
-        return Mono.just(ResponseEntity.ok(products(delayMs)));
+    public Mono<ResponseEntity<Flux<InventoryResponse>>> listInventories(Integer page, Integer size, Integer delayMs,
+                                                                         ServerWebExchange exchange) {
+        return Mono.just(ResponseEntity.ok(products(page, size, delayMs)));
     }
 
     @GetMapping(produces = MediaType.APPLICATION_NDJSON_VALUE)
     public Flux<InventoryResponse> streamInventories(
-            @RequestParam(defaultValue = "0")
-            @Min(value = 0, message = "La demora debe ser como mínimo 0.")
-            @Max(value = 2000, message = "La demora no puede superar 2000 ms.") int delayMs) {
-        return products(delayMs);
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @RequestParam(defaultValue = "0") @Min(0) @Max(2000) int delayMs) {
+        return products(page, size, delayMs);
     }
 
     @GetMapping(produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<InventoryResponse>> streamInventoryEvents(
-            @RequestParam(defaultValue = "0")
-            @Min(value = 0, message = "La demora debe ser como mínimo 0.")
-            @Max(value = 2000, message = "La demora no puede superar 2000 ms.") int delayMs) {
-        return products(delayMs).map(product -> ServerSentEvent.builder(product)
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @RequestParam(defaultValue = "0") @Min(0) @Max(2000) int delayMs) {
+        return products(page, size, delayMs).map(product -> ServerSentEvent.builder(product)
                 .id(product.idProduct()).event("inventory").build());
     }
 
@@ -80,13 +82,16 @@ public class InventoryController implements InventoriesApi {
     @PutMapping(value = "/{productId}", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     public Mono<ResponseEntity<InventoryResponse>> decreaseInventory(String productId, Mono<OrderInvRequest> orderInvRequest,
+                                                                    @Nullable String idempotencyKey,
                                                                     ServerWebExchange exchange) {
-        return orderInvRequest.flatMap(request -> service.decreaseStock(productId, request.orderCount()))
+        return orderInvRequest.flatMap(request -> service.decreaseStock(productId, request.orderCount(), idempotencyKey))
                 .map(ResponseEntity::ok);
     }
 
-    private Flux<InventoryResponse> products(int delayMs) {
-        var products = service.findAll();
-        return delayMs == 0 ? products : products.delayElements(Duration.ofMillis(delayMs));
+    private Flux<InventoryResponse> products(int page, int size, int delayMs) {
+        var products = service.findAll(page, size);
+        // Demo pacing: read the rows first so a slow client never holds a pooled connection for the whole stream.
+        return delayMs == 0 ? products
+                : products.collectList().flatMapMany(Flux::fromIterable).delayElements(Duration.ofMillis(delayMs));
     }
 }
