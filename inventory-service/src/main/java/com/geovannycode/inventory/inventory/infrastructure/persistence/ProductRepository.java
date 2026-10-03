@@ -1,5 +1,6 @@
 package com.geovannycode.inventory.inventory.infrastructure.persistence;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.r2dbc.repository.Modifying;
 import org.springframework.data.r2dbc.repository.Query;
 import org.springframework.data.repository.reactive.ReactiveCrudRepository;
@@ -12,7 +13,7 @@ public interface ProductRepository extends ReactiveCrudRepository<ProductEntity,
 
     Mono<Boolean> existsByCode(String code);
 
-    Flux<ProductEntity> findAllByOrderByCodeAsc();
+    Flux<ProductEntity> findAllByOrderByCodeAsc(Pageable pageable);
 
     /**
      * Descuenta stock mediante una única sentencia UPDATE condicional y atómica.

@@ -1,15 +1,16 @@
 package com.geovannycode.inventory.config;
 
-import io.r2dbc.spi.ConnectionFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.r2dbc.connection.R2dbcTransactionManager;
+import org.springframework.transaction.ReactiveTransactionManager;
+import org.springframework.transaction.reactive.TransactionalOperator;
 
 @Configuration(proxyBeanMethods = false)
 public final class ReactiveTransactionConfiguration {
 
+    // Boot auto-configures the R2dbcTransactionManager; programmatic demarcation lets callers act after commit.
     @Bean
-    R2dbcTransactionManager inventoryTransactionManager(ConnectionFactory connectionFactory) {
-        return new R2dbcTransactionManager(connectionFactory);
+    TransactionalOperator transactionalOperator(ReactiveTransactionManager transactionManager) {
+        return TransactionalOperator.create(transactionManager);
     }
 }
