@@ -1,0 +1,5 @@
+# Short waits so the retry tests stay fast; the policy shape (3 attempts, exponential) is the same as application.yml.
+notify:
+  retry:
+    initial-interval: 100ms
+    max-interval: 400ms

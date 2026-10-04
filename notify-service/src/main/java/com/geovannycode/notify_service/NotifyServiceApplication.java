@@ -1,0 +1,13 @@
+package com.geovannycode.notify_service;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication(proxyBeanMethods = false)
+public final class NotifyServiceApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(NotifyServiceApplication.class, args);
+    }
+
+}

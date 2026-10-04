@@ -41,6 +41,32 @@ services:
     networks:
       - inventory
 
+  # Notification Service database. The root user only initializes it; mongo-init.js creates the application user
+  # (readWrite on MONGO_DB) the service connects with. Init scripts run only on an empty mongo-data volume.
+  mongodb:
+    image: mongo:8.0.32@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c
+    container_name: notify-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Define MONGO_INITDB_ROOT_PASSWORD en .env}
+      MONGO_DB: ${MONGO_DB:-db_notify}
+      MONGO_USER: ${MONGO_USER:-notify}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:?Define MONGO_PASSWORD en .env}
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
+    # ping needs no authentication.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok === 1 ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - mongo-data:/data/db
+      - ./notify-service/db-scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - inventory
+
   # Order events broker: single-node KRaft (broker + controller, no ZooKeeper). Two listeners: EXTERNAL for
   # apps on the host (localhost:9092) and INTERNAL for containers on the network (kafka:19092).
   kafka:
@@ -216,6 +242,7 @@ volumes:
   mysql-data:
   postgres-data:
   kafka-data:
+  mongo-data:
 
 networks:
   inventory:

@@ -1,0 +1,244 @@
+openapi: 3.0.3
+info:
+  title: Servicio de Notificación
+  description: >
+    Consume los eventos de órdenes desde Kafka, registra una notificación por cada evento
+    y la envía por el canal configurado. Esta API es de solo lectura.
+  version: 2.0.0
+
+servers:
+  - url: /services-notify
+    description: Url endpoint del servicio de notificaciones
+
+# La API del curso no tiene autenticación propia: la protege el API Gateway.
+security: []
+
+tags:
+  - name: Notify
+    description: Notificaciones generadas a partir de eventos de Kafka
+
+paths:
+  /notify:
+    get:
+      tags:
+        - Notify
+      summary: Lista las notificaciones procesadas
+      description: Lista las notificaciones, de la más reciente a la más antigua.
+      operationId: findAllNotify
+      parameters:
+        - name: orderId
+          in: query
+          required: false
+          description: Filtra por ID de la orden
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: status
+          in: query
+          required: false
+          description: Filtra por estado de la notificación
+          schema:
+            $ref: '#/components/schemas/NotifyStatus'
+        - name: limit
+          in: query
+          required: false
+          description: Máximo de notificaciones a devolver
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: Operación exitosa
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotifyResponse'
+            application/x-ndjson:
+              schema:
+                $ref: '#/components/schemas/NotifyResponse'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/NotifyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /notify/{notifyId}:
+    get:
+      tags:
+        - Notify
+      summary: Busca una notificación por ID
+      operationId: getNotifyById
+      parameters:
+        - name: notifyId
+          in: path
+          description: ID de la notificación
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-fA-F0-9]{24}$'
+            example: 66ff1c2ab7e4d91a2c3d4e5f
+      responses:
+        '200':
+          description: Operación exitosa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotifyResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Notificación no encontrada
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://geovannycode.com/problems/notify-not-found
+                title: Notificación no encontrada
+                status: 404
+                detail: No existe la notificación 66ff1c2ab7e4d91a2c3d4e5f
+                instance: /services-notify/notify/66ff1c2ab7e4d91a2c3d4e5f
+                timestamp: '2026-10-04T21:00:00Z'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  responses:
+    BadRequest:
+      description: Solicitud inválida
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    InternalError:
+      description: Error en el servidor
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+  schemas:
+    NotifyStatus:
+      type: string
+      description: >
+        pending: registrada, aún no enviada.
+        sent: enviada por el canal.
+        failed: se agotaron los reintentos de envío.
+      enum:
+        - pending
+        - sent
+        - failed
+      example: sent
+
+    NotifyResponse:
+      type: object
+      required:
+        - id
+        - eventId
+        - eventType
+        - orderId
+        - codeProduct
+        - quantity
+        - message
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+          description: Identificador de la notificación
+          example: 66ff1c2ab7e4d91a2c3d4e5f
+        eventId:
+          type: string
+          format: uuid
+          description: Identificador del evento que originó la notificación
+        eventType:
+          type: string
+          enum:
+            - OrderCompleted
+            - OrderCanceled
+          example: OrderCompleted
+        orderId:
+          type: integer
+          format: int64
+          example: 12345
+        codeProduct:
+          type: string
+          example: AC-1550
+        quantity:
+          type: integer
+          format: int32
+          example: 2
+        cancelReason:
+          type: string
+          description: Solo en eventos OrderCanceled
+          example: INSUFFICIENT_STOCK
+        message:
+          type: string
+          description: Texto de la notificación
+          example: La orden 12345 (AC-1550 x2) fue completada.
+        channel:
+          type: string
+          description: Canal por el que se envió
+          enum:
+            - log
+            - webhook
+          example: log
+        status:
+          $ref: '#/components/schemas/NotifyStatus'
+        attempts:
+          type: integer
+          format: int32
+          description: Intentos de envío realizados
+          example: 1
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-10-04T21:00:00Z'
+        sentAt:
+          type: string
+          format: date-time
+          example: '2026-10-04T21:00:01Z'
+
+    ProblemDetail:
+      type: object
+      description: Error en formato RFC 9457
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        errors:
+          type: array
+          items:
+            type: object
+            required:
+              - field
+              - message
+            properties:
+              field:
+                type: string
+              message:
+                type: string

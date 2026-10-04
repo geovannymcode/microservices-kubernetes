@@ -1,0 +1,1 @@
+# El perfil local usa los valores comunes y las variables MONGO_* de application.yml (exportadas desde .env).

@@ -1,0 +1,82 @@
+spring:
+  application:
+    name: service-notify
+  webflux:
+    base-path: /services-notify
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  # Boot 4 moved the connection settings from spring.data.mongodb.* (deprecated, level error) to spring.mongodb.*;
+  # spring.data.mongodb.* keeps only Spring Data options (auto-index-creation, field naming...).
+  mongodb:
+    host: ${MONGO_HOST:localhost}
+    port: ${MONGO_PORT:27017}
+    database: ${MONGO_DB:db_notify}
+    username: ${MONGO_USER:notify}
+    password: ${MONGO_PASSWORD:}
+    # The application user is created in its own database, not in admin.
+    authentication-database: ${MONGO_DB:db_notify}
+  # Consumer only, plus a minimal producer for the dead-letter topic (KafkaConsumerConfiguration builds it).
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: service-notify
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # A record that is not valid JSON must reach the DLT, not loop forever in the consumer.
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+        # Fixed type: Order publishes plain JSON (StringSerializer), never Spring type headers, and none are trusted.
+        spring.json.value.default.type: com.geovannycode.notify_service.notify.domain.OrderEvent
+        spring.json.use.type.headers: false
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    listener:
+      # Offset committed after each record is processed (stored and delivered), never before.
+      ack-mode: record
+      concurrency: ${NOTIFY_CONSUMER_CONCURRENCY:3}
+    admin:
+      # Topic creation (local/docker/test) must not hold startup for long when Kafka is down.
+      operation-timeout: 5s
+  data:
+    mongodb:
+      # Indexes are created explicitly by MongoIndexInitializer (reviewed in code), never derived from annotations.
+      auto-index-creation: false
+
+notify:
+  topics:
+    order-events: orders.events.v1
+  processing-timeout: ${NOTIFY_PROCESSING_TIMEOUT:10s}
+  retry:
+    max-attempts: 3
+    initial-interval: 1s
+    multiplier: 2
+    max-interval: 4s
+
+notification:
+  sender:
+    # log (default) | webhook (phase 6)
+    type: ${NOTIFICATION_SENDER_TYPE:log}
+
+server:
+  port: 8082
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # mongoIndexes (MongoIndexInitializer): no traffic before the unique eventId index exists.
+        readiness:
+          include: readinessState,mongo,mongoIndexes

@@ -68,6 +68,10 @@
     {
       "key": "domainOSk8s",
       "value": "http://localhost:30081"
+    },
+    {
+      "key": "notifyId",
+      "value": ""
     }
   ],
   "item": [
@@ -2781,6 +2785,156 @@
                         "exec": [
                           "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
                           "pm.test(\"Solo pending\", () => pm.response.json().forEach(o => pm.expect(o.status).to.eql(\"pending\")));"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Notify Service",
+      "item": [
+        {
+          "name": "local",
+          "description": "Contra la app en local: domainNS = localhost:8082.",
+          "item": [
+            {
+              "name": "Actuator",
+              "item": [
+                {
+                  "name": "actuator/health",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/actuator/health"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Estado UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "liveness",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/actuator/health/liveness"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Estado UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "readiness",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/actuator/health/readiness"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Estado UP\", () => pm.expect(pm.response.json().status).to.eql(\"UP\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "env (no expuesto)",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/actuator/env"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Notify",
+              "item": [
+                {
+                  "name": "get all notify",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/notify?limit=100"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "// Saves the newest notification's id for \"get notify by id\" (the list is newest first).",
+                          "if (pm.response.code === 200) {",
+                          "  const notifications = pm.response.json();",
+                          "  if (Array.isArray(notifications) && notifications.length > 0) {",
+                          "    pm.collectionVariables.set(\"notifyId\", notifications[0].id);",
+                          "  }",
+                          "}"
                         ]
                       }
                     }
