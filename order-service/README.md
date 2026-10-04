@@ -332,6 +332,18 @@ docker image inspect geovannycode/service-order:0.0.1-SNAPSHOT --format '{{.Conf
 docker top service-order -eo uid,pid,args                                                    # UID 10001
 ```
 
+**Build en CI (BuildKit con driver `docker-container`).** El Dockerfile resuelve dos problemas que no aparecían en las builds locales:
+
+- **`unzip` en la etapa de build.** La imagen `eclipse-temurin:25-jdk` no lo trae, y sin él `mvnw` descarga Maven en `.tar.gz` en lugar del `.zip`. El hash fijado en `maven-wrapper.properties` es el del `.zip` (el que exige `mvnw.cmd` en Windows), así que la validación fallaba. En local no pasaba porque Maven ya estaba en la caché `/root/.m2`.
+- **`OTEL_TRACES_EXPORTER=none` en la etapa `aot`.** El builder de `setup-buildx-action` inyecta en cada `RUN` variables `OTEL_*` con un endpoint `unix://` para su propio tracing. Boot les da prioridad sobre cualquier propiedad y el training run fallaba al crear el exportador OTLP. Un `ENV` del Dockerfile prevalece sobre lo inyectado, y esa etapa no llega a la imagen final.
+
+Para reproducir la build de CI en local, con una caché vacía:
+
+```sh
+docker buildx create --name ci --driver docker-container
+docker buildx build --builder ci --platform linux/amd64 --build-context contracts=contracts --load order-service
+```
+
 ### Sistema completo con Compose
 
 Sin profile, `docker compose up` levanta MySQL, PostgreSQL, Kafka, service-inventory y service-order. Los profiles `observability` (Grafana/Tempo/Prometheus) y `tools` (kafka-ui, Liquibase CLI) se levantan aparte.

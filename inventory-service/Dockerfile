@@ -8,6 +8,9 @@ ARG RUNTIME_IMAGE=gcr.io/distroless/cc-debian13@sha256:159783207c2cd44c2aa571596
 
 # --- build: compile and package without tests (CI runs ./mvnw verify separately) ---
 FROM ${JDK_IMAGE} AS build
+# mvnw only downloads the .zip whose SHA-256 is pinned in maven-wrapper.properties when unzip exists; without it
+# (the temurin image has none) it switches to the .tar.gz and the checksum fails. Build stage only.
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace/inventory-service
 COPY --from=contracts services-inventory.yaml /workspace/contracts/services-inventory.yaml
 COPY .mvn/ .mvn/
@@ -44,6 +47,10 @@ COPY --from=build /workspace/healthcheck/HealthCheck.class ./healthcheck/
 # The context is refreshed and closed without a database: Flyway is skipped and no connection is opened.
 # Module options (JDK_JAVA_OPTIONS, set in the app stage) must match at runtime or the JVM silently drops the cache.
 FROM app AS aot
+# BuildKit's docker-container driver (CI's setup-buildx) injects OTEL_TRACES_EXPORTER=otlp and a unix:// endpoint
+# into RUN steps for its own tracing; Boot reads OTEL_* with priority over any property and the OTLP exporter
+# rejects that endpoint. A Dockerfile ENV wins over the injected one, and this stage never reaches the runtime image.
+ENV OTEL_TRACES_EXPORTER=none
 RUN ["java", "-XX:AOTCacheOutput=/app/app.aot", "-Dspring.context.exit=onRefresh", "-Dspring.flyway.enabled=false", "-jar", "/app/app.jar"]
 
 # --- runtime ---
