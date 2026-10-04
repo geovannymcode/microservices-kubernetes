@@ -2928,13 +2928,123 @@
                       "script": {
                         "type": "text/javascript",
                         "exec": [
-                          "// Saves the newest notification's id for \"get notify by id\" (the list is newest first).",
-                          "if (pm.response.code === 200) {",
-                          "  const notifications = pm.response.json();",
-                          "  if (Array.isArray(notifications) && notifications.length > 0) {",
-                          "    pm.collectionVariables.set(\"notifyId\", notifications[0].id);",
-                          "  }",
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "const notifications = pm.response.json();",
+                          "pm.test(\"Lista JSON\", () => pm.expect(notifications).to.be.an(\"array\"));",
+                          "pm.test(\"De la más reciente a la más antigua\", () => {",
+                          "  const dates = notifications.map(n => Date.parse(n.createdAt));",
+                          "  pm.expect(dates).to.eql([...dates].sort((a, b) => b - a));",
+                          "});",
+                          "// Saves the newest notification's id and order for the next requests.",
+                          "if (notifications.length > 0) {",
+                          "  pm.collectionVariables.set(\"notifyId\", notifications[0].id);",
+                          "  pm.collectionVariables.set(\"orderId\", notifications[0].orderId);",
                           "}"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get notify",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/notify/{{notifyId}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Es la notificación pedida\", () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get(\"notifyId\")));",
+                          "pm.test(\"Estado del contrato\", () => pm.expect(pm.response.json().status).to.be.oneOf([\"pending\", \"sent\", \"failed\"]));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get all notify por orden",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/notify?orderId={{orderId}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Solo de esa orden\", () => pm.response.json().forEach(n => pm.expect(String(n.orderId)).to.eql(String(pm.collectionVariables.get(\"orderId\")))));",
+                          "pm.test(\"Al menos una\", () => pm.expect(pm.response.json().length).to.be.above(0));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get notify inexistente",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/notify/000000000000000000000000"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                          "pm.test(\"ProblemDetail\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                          "pm.test(\"type notify-not-found\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/notify-not-found\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get notify id inválido",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainNS}}/services-notify/notify/abc"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
+                          "pm.test(\"ProblemDetail\", () => pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/problem+json\"));",
+                          "pm.test(\"type validation-error\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/validation-error\"));",
+                          "pm.test(\"Campo notifyId\", () => pm.expect(pm.response.json().errors[0].field).to.eql(\"notifyId\"));"
                         ]
                       }
                     }

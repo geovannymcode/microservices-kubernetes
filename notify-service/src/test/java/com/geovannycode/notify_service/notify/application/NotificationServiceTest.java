@@ -11,6 +11,7 @@ import com.geovannycode.notify_service.notify.domain.NotifyStatus;
 import com.geovannycode.notify_service.notify.domain.OrderEvent;
 import com.geovannycode.notify_service.notify.infrastructure.persistence.MongoIndexInitializer;
 import com.geovannycode.notify_service.notify.infrastructure.persistence.NotificationDocument;
+import com.geovannycode.notify_service.notify.infrastructure.persistence.NotificationQueryRepository;
 import com.geovannycode.notify_service.notify.infrastructure.persistence.NotificationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ final class NotificationServiceTest {
     @Mock private NotificationRepository repository;
     @Mock private NotificationSender sender;
     @Mock private MongoIndexInitializer indexes;
+    @Mock private NotificationQueryRepository queries;
     private NotificationService service;
 
     @BeforeEach
@@ -46,7 +48,8 @@ final class NotificationServiceTest {
         lenient().when(indexes.ready()).thenReturn(Mono.empty());
         lenient().when(sender.channel()).thenReturn("log");
         lenient().when(repository.save(any(NotificationDocument.class))).thenAnswer(call -> Mono.just(call.getArgument(0)));
-        service = new NotificationService(repository, sender, indexes, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new NotificationService(repository, sender, indexes, queries, new NotifyMapperImpl(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static OrderEvent event(String eventType, String status, String cancelReason) {
@@ -172,6 +175,30 @@ final class NotificationServiceTest {
         when(repository.findByEventId(EVENT_ID)).thenReturn(Mono.just(stored(NotifyStatus.SENT, 1)));
         StepVerifier.create(service.markFailed(EVENT_ID)).verifyComplete();
         verify(repository, never()).save(any());
+    }
+
+    @Test
+    void findByIdMapsTheDocument() {
+        when(repository.findById("66ff1c2ab7e4d91a2c3d4e5f")).thenReturn(Mono.just(stored(NotifyStatus.SENT, 1)));
+        StepVerifier.create(service.findById("66ff1c2ab7e4d91a2c3d4e5f"))
+                .assertNext(response -> {
+                    assertThat(response.getId()).isEqualTo("66ff1c2ab7e4d91a2c3d4e5f");
+                    assertThat(response.getStatus().getValue()).isEqualTo("sent");
+                }).verifyComplete();
+    }
+
+    @Test
+    void missingNotificationIsNotFoundNeverEmpty() {
+        when(repository.findById("000000000000000000000000")).thenReturn(Mono.empty());
+        StepVerifier.create(service.findById("000000000000000000000000"))
+                .expectError(com.geovannycode.notify_service.notify.domain.NotifyNotFoundException.class).verify();
+    }
+
+    @Test
+    void findAllPassesFiltersAndLimitAndMapsEachDocument() {
+        when(queries.find(42L, NotifyStatus.SENT, 5)).thenReturn(reactor.core.publisher.Flux.just(stored(NotifyStatus.SENT, 1)));
+        StepVerifier.create(service.findAll(42L, NotifyStatus.SENT, 5))
+                .assertNext(response -> assertThat(response.getOrderId()).isEqualTo(42L)).verifyComplete();
     }
 
     @Test

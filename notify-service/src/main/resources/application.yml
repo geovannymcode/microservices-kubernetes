@@ -80,3 +80,12 @@ management:
         # mongoIndexes (MongoIndexInitializer): no traffic before the unique eventId index exists.
         readiness:
           include: readinessState,mongo,mongoIndexes
+
+# Swagger UI shows the static contract copied into the jar at build time, not a reflection-generated spec.
+# springdoc needs api-docs enabled for the UI (it serves /v3/api-docs/swagger-config), so the reflection
+# scan is emptied instead: there is a single API description, the contract (same as order-service).
+springdoc:
+  paths-to-exclude: /**
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /services-notify/openapi/services-notify.yaml

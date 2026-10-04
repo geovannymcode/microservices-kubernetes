@@ -2,7 +2,7 @@
 
 Microservicio reactivo de notificaciones. Consume los eventos de órdenes que publica Order en Kafka (`orders.events.v1`), registra una notificación por evento en MongoDB, la envía por un canal y expone una API de solo lectura.
 
-Estado: **fase 3**. Persistencia reactiva en MongoDB y API generada desde el contrato. Las operaciones aún responden 501, y todavía no hay listener ni servicio.
+Estado: **fase 5**. Consume `orders.events.v1`, guarda una notificación por evento en MongoDB, la envía por el canal `log` y expone la API de solo lectura del contrato v2.0.0.
 
 ## Requisitos
 
@@ -22,7 +22,10 @@ Todas las conexiones se leen de variables de entorno; no hay credenciales en el 
 | `MONGO_HOST` / `MONGO_PORT` | `localhost` / `27017` |
 | `MONGO_DB` | `db_notify` (también es la base de autenticación) |
 | `MONGO_USER` / `MONGO_PASSWORD` | `notify` / (vacío) |
-| `KAFKA_BOOTSTRAP_SERVERS` | sin uso todavía (entra con el listener) |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` |
+| `NOTIFY_CONSUMER_CONCURRENCY` | `3` (un hilo por partición de `orders.events.v1`) |
+| `NOTIFY_PROCESSING_TIMEOUT` | `10s` (espera máxima del listener por evento) |
+| `NOTIFICATION_SENDER_TYPE` | `log` (el canal `webhook` llega en la fase 6) |
 
 Boot 4 movió las propiedades de conexión de `spring.data.mongodb.*` a `spring.mongodb.*`. Las antiguas están marcadas como obsoletas con nivel `error`, así que `application.yml` usa las nuevas.
 
@@ -83,19 +86,88 @@ El contrato es [`contracts/services-notify.yaml`](../contracts/services-notify.y
 - **`EnumConverterConfiguration`** (también generado) convierte `?status=sent` con `NotifyStatus.fromValue`. Sin él, Spring usaría `valueOf` y los valores en minúscula del contrato darían 400.
 - **Única dependencia añadida** para el código generado: `swagger-annotations-jakarta`, por las anotaciones `@Operation` y `@Schema`.
 
-**`NotifyApiDelegateImpl`** sobrescribe las dos operaciones. Por ahora responden 501 con un TODO, y la lógica llega en la fase 5. `NotifyApiTest` comprueba por reflexión que ninguna operación queda con el 501 por defecto de la interfaz generada (`skipDefaultInterface` debe seguir en `false` con `delegatePattern`).
+**Endpoints** (solo lectura; no hay POST, PUT ni DELETE):
 
-**Validación.** `limit` admite de 1 a 500, `orderId` debe ser 1 o mayor y `notifyId` debe tener 24 caracteres hexadecimales. Estas restricciones vienen del contrato y las aplica el controlador generado (`@Validated`). Esa validación lanza `ConstraintViolationException`, que sin manejador sería un 500. Por eso `GlobalExceptionHandler` la convierte en un 400 `ProblemDetail` (`validation-error`, con `errors[]` y mensajes en español), con el mismo formato que Inventory y Order. Un `status` desconocido da 400 `invalid-request`.
+| Operación | Respuesta |
+|---|---|
+| `GET /notify?orderId&status&limit` | Notificaciones de la más reciente a la más antigua (`createdAt`, luego `_id`), con `limit` por defecto 100 (de 1 a 500). Admite JSON, NDJSON (`application/x-ndjson`) y SSE (`text/event-stream`, un evento por notificación con `id` = id de la notificación y `event: notify`). |
+| `GET /notify/{notifyId}` | La notificación. Si no existe, siempre 404 `notify-not-found`, nunca un 200 vacío. |
 
-**`NotifyMapper`** (MapStruct 1.6.3, `componentModel = "spring"`) convierte `NotificationDocument` en `NotifyResponse`:
+- **`NotifyApiDelegateImpl`** es solo un adaptador HTTP: el controlador generado enruta y valida, y `NotificationService.findAll` y `findById` responden.
+- **SSE.** El generador da una sola firma para los tres media types. Con SSE, el delegate devuelve `ServerSentEvent` dentro del mismo `Flux`, como en Order.
+- **`NotifyApiTest`** comprueba además por reflexión que el delegate sobrescribe todas las operaciones generadas (`skipDefaultInterface` debe seguir en `false` con `delegatePattern`).
+
+**Errores** (`GlobalExceptionHandler`, `ProblemDetail` con `type`, `title`, `status`, `detail`, `instance`, `timestamp` y `errors[]`, igual que Inventory y Order):
+
+| Caso | Respuesta |
+|---|---|
+| Notificación inexistente | 404 `notify-not-found` |
+| `limit` fuera de 1-500, `orderId` < 1, `notifyId` que no tiene 24 caracteres hexadecimales | 400 `validation-error` con `errors[]` y mensajes en español |
+| `status` desconocido u otro parámetro que no se puede convertir | 400 `invalid-request` |
+| Cualquier otro error | 500 `internal-error`, registrado en ERROR, sin exponer el mensaje interno |
+
+La validación la hace el controlador generado (`@Validated`). Esa validación lanza `ConstraintViolationException`, que el handler convierte en 400.
+
+**Swagger UI** está en `/services-notify/swagger-ui.html` y muestra el contrato estático. `maven-resources-plugin` copia `contracts/services-notify.yaml` al jar (`/services-notify/openapi/services-notify.yaml`), y el escaneo por reflexión de springdoc está vacío. Es lo mismo que en Order (springdoc 3.1.1).
+
+**CORS**, solo en el perfil `local` y solo para `GET`: permite los visores de `web/` (`stream-viewer.html` para NDJSON y `stream-event-viewer.html` para SSE). Los visores tienen un selector de recurso (Inventario o Notificaciones); con Notificaciones apuntan a `http://localhost:8082/services-notify/notify`.
+
+```sh
+cd web && python3 -m http.server 8099     # http://localhost:8099/stream-viewer.html -> Recurso: Notificaciones
+```
+
+**`NotifyMapper`** (MapStruct 1.6.3, `componentModel = "spring"`) está en `application`, como en Order: `NotificationService` devuelve `NotifyResponse`, y con el mapper en `api` habría un ciclo entre `api` y `application`. Convierte `NotificationDocument` en `NotifyResponse`:
 
 - `Instant` → `OffsetDateTime` en UTC;
 - `eventId` → `UUID`;
 - `eventType`, `channel` y `status` pasan por su valor en el contrato (`fromValue`), nunca por el nombre de la constante. Un valor desconocido falla en lugar de mapearse a `null`.
 
 ```sh
-curl -i http://localhost:8082/services-notify/notify                 # 501 (fase 5)
-curl -i "http://localhost:8082/services-notify/notify?limit=9999"    # 400 validation-error
+curl -s "http://localhost:8082/services-notify/notify?orderId=42"
+curl -i http://localhost:8082/services-notify/notify/000000000000000000000000   # 404 notify-not-found
+curl -i http://localhost:8082/services-notify/notify/abc                        # 400 validation-error
+curl -N -H "Accept: text/event-stream" http://localhost:8082/services-notify/notify
+```
+
+## Consumo de eventos (Kafka)
+
+Order publica en `orders.events.v1` (fase 9 de Order; contrato en [`contracts/events/order-events.yaml`](../contracts/events/order-events.yaml)):
+
+- **key:** el id de la orden;
+- **headers:** `eventType`, `eventId` y `traceparent`;
+- **valor:** JSON en texto plano (`StringSerializer`), sin headers de tipo de Spring. Lo genera un campo JSONB, así que el orden de las claves varía y no se depende de él.
+
+**Consumidor.** Grupo `service-notify`, `auto-offset-reset: earliest`, sin auto-commit, `ack-mode: record` y `concurrency: 3`.
+
+- La key se lee con `StringDeserializer`.
+- El valor se lee con `ErrorHandlingDeserializer` sobre `JacksonJsonDeserializer` (Jackson 3; `JsonDeserializer` es el de Jackson 2 y está obsoleto). El tipo es fijo, `OrderEvent`, y no se usan los headers de tipo.
+- Los campos desconocidos se ignoran, para admitir cambios compatibles de la versión 1.
+
+**`OrderEventListener`** valida el evento (Jakarta Validation) y llama a `NotificationService.handle`. Espera el resultado con `block(processing-timeout)`, que es la única llamada bloqueante del servicio: corre en el hilo del consumidor de Kafka ([ADR 0007](../docs/adr/0007-kafka-consumer-model.md)). El offset se confirma después de guardar y enviar.
+
+| Caso | Resultado |
+|---|---|
+| No se puede deserializar o no cumple el formato | `orders.events.v1.dlt`, sin reintentos |
+| `eventType` desconocido | Se ignora con WARN (no es un error ni va a la DLT) |
+| Ya existe una notificación SENT con ese `eventId` | Se ignora (duplicado) |
+| No existe | Se inserta PENDING, se envía y queda SENT (`attempts`, `sentAt`) |
+| Existe en PENDING o FAILED (reentrega) | Se reenvía y queda SENT |
+| El envío falla | Se cuenta el intento, sigue PENDING y Kafka reintenta. Al agotar los intentos: FAILED y DLT |
+
+- **Sin duplicados.** Lo garantiza el índice único de `eventId`: el servicio inserta y, si recibe `DuplicateKeyException`, lee la notificación existente. No hace "consultar y luego insertar". Antes de procesar espera a que exista el índice (`MongoIndexInitializer.ready()`).
+- **Reintentos.** `DefaultErrorHandler` con backoff exponencial: 3 entregas en total, con esperas de 1 s y 2 s y un tope de 4 s (`notify.retry.*`). En la última, el listener marca la notificación FAILED y el `DeadLetterPublishingRecoverer` publica el evento en `orders.events.v1.dlt`, en la misma partición y con los headers `kafka_dlt-exception-*`.
+- **Topic DLT.** Lo crea un `NewTopic` con 3 particiones, solo en los perfiles `local`, `docker` y `test`.
+- **Mensajes:**
+  - completada: `La orden {orderId} ({codeProduct} x{quantity}) fue completada.`
+  - cancelada: `... fue cancelada: {motivo}.`, donde el motivo es `el producto no existe` o `no hay stock suficiente`.
+- **Canal.** `LogNotificationSender` (`notification.sender.type=log`, el valor por defecto) escribe la notificación en el log, en INFO. El puerto `NotificationSender` recibe un `NotificationMessage` del dominio, no el documento de Mongo, para no crear un ciclo entre el dominio y la persistencia.
+
+Para ver el consumidor con el sistema completo (Kafka, Order e Inventory de Compose):
+
+```sh
+docker exec order-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:19092 --describe --group service-notify
+docker exec -it notify-mongo mongosh -u notify -p --authenticationDatabase db_notify db_notify \
+  --eval 'db.notify_orders.find({}, {_id:0, orderId:1, eventType:1, status:1, attempts:1, message:1}).sort({createdAt:-1}).limit(5)'
 ```
 
 ## Arranque local
@@ -125,7 +197,11 @@ Actuator expone solo `health` e `info`; `/services-notify/actuator/env` responde
 - **Unitarios** (Surefire, `*Test`):
   - `contextLoads`;
   - `NotifyMapperTest` (todos los campos, fechas en UTC, enums por su valor y rechazo de valores desconocidos);
-  - `NotifyApiTest`, slice web: el delegate cubre todas las operaciones, responde 501 y la validación generada da 400 con `ProblemDetail`.
+  - `NotifyApiTest`, slice web con el servicio simulado (`@MockitoBean`), que comprueba:
+    - status, `Content-Type` y cuerpo de JSON, NDJSON y SSE;
+    - el paso de filtros y límite;
+    - los `ProblemDetail` 400, 404 y 500;
+  - `NotificationServiceTest` (Mockito + StepVerifier): una prueba por fila de la tabla de decisión, más los mensajes, `markFailed`, la espera al índice y las consultas (incluido el 404).
 - **Integración** (Failsafe, `*IT`): `NotificationRepositoryIT`. Corre contra `mongo:8.0.32` en Testcontainers 2 (`@ServiceConnection`, con el mismo digest que Compose) y cubre:
   - el id, `createdAt` y `version` asignados al guardar;
   - `findByEventId`;
@@ -134,5 +210,15 @@ Actuator expone solo `health` e `info`; `/services-notify/actuator/env` responde
   - el `status` en minúscula, leído del documento crudo;
   - el bloqueo optimista;
   - la idempotencia de los índices.
+- **Integración** (Failsafe, `*IT`): `NotifyApiIT` hace HTTP real contra MongoDB y comprueba el orden, los filtros `orderId` y `status`, el límite, el 404 y el 400, un evento SSE por notificación y Swagger UI.
+- **Integración** (Failsafe, `*IT`): `OrderEventListenerIT`, con Kafka y MongoDB en Testcontainers y un canal de prueba que falla bajo demanda. Comprueba lo siguiente:
+  - completada → SENT con su mensaje;
+  - cancelada → mensaje con el motivo;
+  - el mismo evento dos veces → una sola notificación;
+  - JSON inválido → DLT, y el consumidor sigue con el siguiente;
+  - evento sin campos obligatorios → DLT sin reintentos;
+  - `eventType` desconocido → se ignora, sin DLT;
+  - canal que falla siempre → FAILED con `attempts = 3` y en la DLT;
+  - canal que falla una vez → SENT con `attempts = 2`.
 
 `./mvnw verify` necesita Docker.

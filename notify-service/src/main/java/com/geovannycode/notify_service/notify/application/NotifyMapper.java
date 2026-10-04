@@ -1,4 +1,4 @@
-package com.geovannycode.notify_service.notify.api;
+package com.geovannycode.notify_service.notify.application;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;

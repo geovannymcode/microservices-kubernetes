@@ -46,6 +46,12 @@
             <version>${mapstruct.version}</version>
         </dependency>
         <dependency>
+            <!-- Swagger UI over the static contract (api-docs by reflection emptied, see application.yml). -->
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+            <version>3.1.1</version>
+        </dependency>
+        <dependency>
             <!-- Only for the @Operation/@Schema annotations in the generated API (annotationLibrary=swagger2). -->
             <groupId>io.swagger.core.v3</groupId>
             <artifactId>swagger-annotations-jakarta</artifactId>
@@ -144,6 +150,27 @@
                                 <documentationProvider>none</documentationProvider>
                                 <hideGenerationTimestamp>true</hideGenerationTimestamp>
                             </configOptions>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <!-- Serves the contract itself to Swagger UI: the docs are exactly contracts/services-notify.yaml. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-contract</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/static/openapi</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../contracts</directory>
+                                    <includes><include>services-notify.yaml</include></includes>
+                                </resource>
+                            </resources>
                         </configuration>
                     </execution>
                 </executions>

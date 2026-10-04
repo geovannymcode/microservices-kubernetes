@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
+import com.geovannycode.notify_service.notify.domain.NotifyNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -25,15 +26,18 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 import reactor.core.publisher.Mono;
 
-/**
- * RFC 9457 errors with the same type/title/instance/timestamp/errors shape as Inventory and Order. The API is
- * read-only, so only query/path validation exists for now; notify-not-found (404) arrives with the use cases.
- */
+/** RFC 9457 errors with the same type/title/instance/timestamp/errors shape as Inventory and Order. */
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(NotifyNotFoundException.class)
+    public Mono<ResponseEntity<Object>> notifyNotFound(NotifyNotFoundException error, ServerWebExchange exchange) {
+        return problem(HttpStatus.NOT_FOUND, "notify-not-found", "Notificación no encontrada",
+                Objects.requireNonNullElse(error.getMessage(), "La notificación no existe."), exchange);
+    }
 
     // Query and path constraints (@Max on limit, @Pattern on notifyId) arrive here: the generated API is @Validated,
     // which validates through the AOP proxy, so Spring's HandlerMethodValidationException is never raised.

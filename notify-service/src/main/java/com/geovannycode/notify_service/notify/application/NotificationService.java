@@ -3,19 +3,23 @@ package com.geovannycode.notify_service.notify.application;
 import java.time.Clock;
 import java.util.Objects;
 
+import com.geovannycode.notify_service.generated.dto.NotifyResponse;
 import com.geovannycode.notify_service.notify.domain.NotificationDeliveryException;
 import com.geovannycode.notify_service.notify.domain.NotificationMessage;
 import com.geovannycode.notify_service.notify.domain.NotificationSender;
+import com.geovannycode.notify_service.notify.domain.NotifyNotFoundException;
 import com.geovannycode.notify_service.notify.domain.NotifyStatus;
 import com.geovannycode.notify_service.notify.domain.OrderEvent;
 import com.geovannycode.notify_service.notify.infrastructure.persistence.MongoIndexInitializer;
 import com.geovannycode.notify_service.notify.infrastructure.persistence.NotificationDocument;
+import com.geovannycode.notify_service.notify.infrastructure.persistence.NotificationQueryRepository;
 import com.geovannycode.notify_service.notify.infrastructure.persistence.NotificationRepository;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -40,14 +44,30 @@ public class NotificationService {
     private final NotificationRepository repository;
     private final NotificationSender sender;
     private final MongoIndexInitializer indexes;
+    private final NotificationQueryRepository queries;
+    private final NotifyMapper mapper;
     private final Clock clock;
 
     public NotificationService(NotificationRepository repository, NotificationSender sender,
-                               MongoIndexInitializer indexes, Clock clock) {
+                               MongoIndexInitializer indexes, NotificationQueryRepository queries, NotifyMapper mapper,
+                               Clock clock) {
         this.repository = repository;
         this.sender = sender;
         this.indexes = indexes;
+        this.queries = queries;
+        this.mapper = mapper;
         this.clock = clock;
+    }
+
+    /** Newest first, optionally filtered by order and status, at most {@code limit}. */
+    public Flux<NotifyResponse> findAll(@Nullable Long orderId, @Nullable NotifyStatus status, int limit) {
+        return queries.find(orderId, status, limit).map(mapper::toResponse);
+    }
+
+    public Mono<NotifyResponse> findById(String id) {
+        return repository.findById(id)
+                .switchIfEmpty(Mono.error(() -> new NotifyNotFoundException(id)))
+                .map(mapper::toResponse);
     }
 
     /** Expects an event already validated by the listener (all required fields present). */

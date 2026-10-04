@@ -8,7 +8,6 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -17,6 +16,7 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.ConcurrentMessageListenerContainer;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
@@ -54,8 +54,11 @@ class KafkaConsumerConfiguration {
      * deserialize is republished with its original bytes; a deserialized one (invalid or undeliverable) as JSON.
      */
     @Bean
-    DeadLetterPublishingRecoverer orderEventsDeadLetterRecoverer(KafkaProperties kafka, NotifyKafkaProperties notify) {
-        Map<String, Object> producer = kafka.buildProducerProperties();
+    DeadLetterPublishingRecoverer orderEventsDeadLetterRecoverer(ProducerFactory<?, ?> bootProducerFactory,
+                                                                 NotifyKafkaProperties notify) {
+        // Boot's factory, not KafkaProperties: its configuration already includes the connection details
+        // (bootstrap servers from spring.kafka.*, a @ServiceConnection or a cloud binding).
+        Map<String, Object> producer = bootProducerFactory.getConfigurationProperties();
         var json = new JacksonJsonSerializer<Object>();
         json.setAddTypeInfo(false);
         Map<Class<?>, KafkaOperations<?, ?>> templates = new LinkedHashMap<>();
