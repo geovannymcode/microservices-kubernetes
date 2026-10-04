@@ -188,7 +188,7 @@ public final class GlobalExceptionHandler extends ResponseEntityExceptionHandler
             case "delayMs" -> "La demora debe estar entre 0 y 2000 ms.";
             case "page" -> "La página debe ser 0 o mayor.";
             case "size" -> "El tamaño de página debe estar entre 1 y 100.";
-            case "idempotencyKey" -> "La Idempotency-Key solo puede contener letras, números, guiones y guiones bajos, entre 1 y 64 caracteres.";
+            case "idempotencyKey" -> "La Idempotency-Key solo puede contener letras, números y . _ : -, entre 1 y 100 caracteres.";
             default -> Objects.requireNonNullElse(fallback, "Valor inválido.");
         };
     }

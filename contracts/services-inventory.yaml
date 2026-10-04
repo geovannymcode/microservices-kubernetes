@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Inventory Service
-  version: 2.0.0
+  version: 2.1.0
   description: >-
     Contrato del inventario reactivo. idProduct y productId identifican products.code
     (solo mayúsculas, números y guiones); la clave interna products.id nunca se expone.
@@ -230,13 +230,15 @@ paths:
         - name: Idempotency-Key
           in: header
           required: false
-          description: Clave única por pedido (por ejemplo, el id de la orden o un UUID). Recomendada para clientes con reintentos.
+          description: >-
+            Clave única por pedido (por ejemplo, order:12345 o un UUID). Recomendada para clientes con reintentos.
+            Letras, números y . _ : -, entre 1 y 100 caracteres.
           schema:
             type: string
             minLength: 1
-            maxLength: 64
-            pattern: '^[A-Za-z0-9_-]{1,64}$'
-          example: order-7f3c2a90
+            maxLength: 100
+            pattern: '^[A-Za-z0-9._:-]{1,100}$'
+          example: order:7f3c2a90
       requestBody:
         required: true
         content:
@@ -308,7 +310,7 @@ paths:
                     type: https://codearti.com/problems/idempotency-key-reused
                     title: Clave de idempotencia reutilizada
                     status: 422
-                    detail: La clave order-7f3c2a90 ya se usó con otra solicitud.
+                    detail: La clave order:7f3c2a90 ya se usó con otra solicitud.
                     instance: /services-inventory/inventories/AC-1550
                     timestamp: '2026-10-02T15:00:00Z'
 components:
