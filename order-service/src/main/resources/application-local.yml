@@ -1,0 +1,14 @@
+# The local profile uses the common values and the DB_* variables from application.yml.
+# Course demo values for the inventory resilience policy (comment them out to use the production-like ones):
+resilience4j:
+  circuitbreaker:
+    instances:
+      inventory:
+        # Opens after 5 recorded calls (3 failing) instead of a window of 10.
+        sliding-window-size: 5
+  ratelimiter:
+    instances:
+      inventory:
+        # 10 confirmations per minute: easy to exceed by hand from Postman and see RequestNotPermitted (503).
+        limit-for-period: 10
+        limit-refresh-period: 1m

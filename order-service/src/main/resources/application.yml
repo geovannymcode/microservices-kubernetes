@@ -1,0 +1,110 @@
+spring:
+  application:
+    name: service-order
+  webflux:
+    base-path: /services-order
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  # Liquibase only speaks JDBC, so it gets its own blocking connection that is used once at startup to
+  # migrate the schema and then closed; all runtime access goes through the reactive R2DBC pool below.
+  liquibase:
+    change-log: classpath:db/changelog/master.yaml
+    contexts: ${LIQUIBASE_CONTEXTS:local}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:orderdb}
+    user: ${DB_USER:order}
+    password: ${DB_PASSWORD:}
+  jackson:
+    # Same strictness as Inventory: {"quantity": 1.9} or {"quantity": "2"} are 400, never silently coerced.
+    deserialization:
+      accept-float-as-int: false
+    mapper:
+      allow-coercion-of-scalars: false
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:orderdb}
+    username: ${DB_USER:order}
+    password: ${DB_PASSWORD:}
+    pool:
+      initial-size: 2
+      max-size: 10
+
+server:
+  port: 8081
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,circuitbreakerevents
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    # Shows the inventory circuit in /actuator/health; allowHealthIndicatorToFail=false keeps an Inventory
+    # outage from marking Order itself as DOWN (probes are unaffected either way).
+    circuitbreakers:
+      enabled: true
+
+inventory:
+  client:
+    base-url: ${INVENTORY_BASE_URL:http://localhost:8080/services-inventory}
+    connect-timeout: 1s
+    response-timeout: 2s
+
+# Instance "inventory" (InventoryGateway). Applied inside-out: time limiter -> rate limiter -> circuit breaker -> retry.
+resilience4j:
+  timelimiter:
+    instances:
+      inventory:
+        timeout-duration: 2s
+  retry:
+    instances:
+      inventory:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.5
+        # Only technical failures. 4xx never get here as WebClientResponseException: the gateway turns
+        # them into InventoryRejectedException or IllegalStateException first, so this means 5xx.
+        retry-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+          - org.springframework.web.reactive.function.client.WebClientResponseException
+        ignore-exceptions:
+          - com.geovannycode.order.order.domain.InventoryRejectedException
+          - java.lang.IllegalStateException
+  circuitbreaker:
+    instances:
+      inventory:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        slow-call-duration-threshold: 2s
+        slow-call-rate-threshold: 50
+        wait-duration-in-open-state: ${INVENTORY_CB_WAIT:30s}
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+        allow-health-indicator-to-fail: false
+        ignore-exceptions:
+          - com.geovannycode.order.order.domain.InventoryRejectedException
+  ratelimiter:
+    instances:
+      inventory:
+        limit-for-period: 50
+        limit-refresh-period: 1s
+        timeout-duration: 0
+
+# Swagger UI shows the static contract copied into the jar at build time, not a reflection-generated spec.
+# springdoc needs api-docs enabled for the UI (it serves /v3/api-docs/swagger-config), so the reflection
+# scan is emptied instead: there is a single API description, the contract.
+springdoc:
+  paths-to-exclude: /**
+  swagger-ui:
+    path: /swagger-ui.html
+    url: /services-order/openapi/services-order.yaml

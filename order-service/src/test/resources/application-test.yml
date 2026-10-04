@@ -1,0 +1,16 @@
+# Tests run the real changelog without the "local" seed rows (and without the cert/prod-only column).
+spring:
+  liquibase:
+    contexts: test
+
+# Short timings so the resilience tests stay fast; the policy shape is the same as application.yml.
+resilience4j:
+  timelimiter:
+    instances:
+      inventory:
+        timeout-duration: 500ms
+  retry:
+    instances:
+      inventory:
+        wait-duration: 20ms
+        enable-randomized-wait: false

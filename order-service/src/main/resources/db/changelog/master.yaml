@@ -1,0 +1,10 @@
+# Explicit, ordered includes (no includeAll): the run order is reviewable in code review.
+# Paths are logical ("db/changelog/...") so the app (classpath) and the CLI (searchPath) record the same
+# FILENAME in DATABASECHANGELOG.
+databaseChangeLog:
+  - include:
+      file: db/changelog/001-create-order-shop.yaml
+  - include:
+      file: db/changelog/002-order-reference.yaml
+  - include:
+      file: db/changelog/900-seed-orders.yaml

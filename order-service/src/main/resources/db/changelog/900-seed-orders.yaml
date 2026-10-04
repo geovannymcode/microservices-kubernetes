@@ -1,0 +1,38 @@
+databaseChangeLog:
+  - changeSet:
+      id: 900-seed-pending-orders
+      author: geovannycode
+      contextFilter: local
+      comment: Tres órdenes pendientes de AC-1550, el producto semilla de Inventory. Solo en local.
+      changes:
+        - insert:
+            tableName: order_shop
+            columns:
+              - { column: { name: code_product, value: AC-1550 } }
+              - { column: { name: quantity, valueNumeric: 1 } }
+              - { column: { name: status_order, value: pending } }
+              - { column: { name: created_at, valueComputed: "TIMESTAMPTZ '2026-01-01 10:00:00+00'" } }
+              - { column: { name: updated_at, valueComputed: "TIMESTAMPTZ '2026-01-01 10:00:00+00'" } }
+        - insert:
+            tableName: order_shop
+            columns:
+              - { column: { name: code_product, value: AC-1550 } }
+              - { column: { name: quantity, valueNumeric: 2 } }
+              - { column: { name: status_order, value: pending } }
+              - { column: { name: created_at, valueComputed: "TIMESTAMPTZ '2026-01-01 10:01:00+00'" } }
+              - { column: { name: updated_at, valueComputed: "TIMESTAMPTZ '2026-01-01 10:01:00+00'" } }
+        - insert:
+            tableName: order_shop
+            columns:
+              - { column: { name: code_product, value: AC-1550 } }
+              - { column: { name: quantity, valueNumeric: 3 } }
+              - { column: { name: status_order, value: pending } }
+              - { column: { name: created_at, valueComputed: "TIMESTAMPTZ '2026-01-01 10:02:00+00'" } }
+              - { column: { name: updated_at, valueComputed: "TIMESTAMPTZ '2026-01-01 10:02:00+00'" } }
+      rollback:
+        # Fixed timestamps identify exactly the seed rows, never orders created later by the app.
+        - delete:
+            tableName: order_shop
+            where: >-
+              code_product = 'AC-1550' AND created_at IN
+              ('2026-01-01 10:00:00+00', '2026-01-01 10:01:00+00', '2026-01-01 10:02:00+00')

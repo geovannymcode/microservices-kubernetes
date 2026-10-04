@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-add-column-order-shop-reference
+      author: geovannycode
+      contextFilter: cert, prod
+      comment: Demo de contextos; la columna solo existe en cert y prod, por eso la entidad no la mapea.
+      changes:
+        - addColumn:
+            tableName: order_shop
+            columns:
+              - column:
+                  name: reference
+                  type: VARCHAR(100)
+                  remarks: Referencia de la orden
+      rollback:
+        - dropColumn:
+            tableName: order_shop
+            columnName: reference
