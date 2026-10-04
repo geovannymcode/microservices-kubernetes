@@ -60,6 +60,14 @@
     {
       "key": "lowStockCode",
       "value": ""
+    },
+    {
+      "key": "stockBefore",
+      "value": ""
+    },
+    {
+      "key": "domainOSk8s",
+      "value": "http://localhost:30081"
     }
   ],
   "item": [
@@ -2129,6 +2137,654 @@
                       "pm.test(\"Sigue pending\", () => pm.expect(pm.response.json().status).to.eql(\"pending\"));"
                     ]
                   }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "k8s",
+          "description": "Contra Kubernetes local (Docker Desktop o minikube), namespace geovannycode. {{domainOSk8s}} y {{domainISk8s}} son las URLs que imprime \"make k8s-url\" (con Docker Desktop: http://localhost:30081 y http://localhost:30080). El evento de Kafka se ve con: kubectl exec -n geovannycode kafka-0 -- /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --topic orders.events.v1 --from-beginning --timeout-ms 5000",
+          "item": [
+            {
+              "name": "Actuator",
+              "item": [
+                {
+                  "name": "actuator/health",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/health"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "liveness",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/health/liveness"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "readiness",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/health/readiness"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "circuitbreakers",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/circuitbreakers"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Instancia inventory\", () => pm.expect(pm.response.json().circuitBreakers).to.have.property(\"inventory\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "circuitbreakerevents",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/circuitbreakerevents"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "retries",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/retries"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Instancia inventory\", () => pm.expect(pm.response.json().retries).to.include(\"inventory\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "ratelimiters",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/ratelimiters"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Instancia inventory\", () => pm.expect(pm.response.json().rateLimiters).to.include(\"inventory\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "health resilience",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/health/resilience"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Estado del circuito\", () => pm.expect(pm.response.json().components.circuitBreakers.details.inventory.details.state).to.be.oneOf([\"CLOSED\", \"OPEN\", \"HALF_OPEN\"]));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "prometheus",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "text/plain"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/actuator/prometheus",
+                    "description": "Formato de texto de Prometheus (con Accept: application/json responde 406)."
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Métricas de Resilience4j\", () => {",
+                          "  const body = pm.response.text();",
+                          "  [\"resilience4j_circuitbreaker_state\", \"resilience4j_retry_calls_total\", \"resilience4j_ratelimiter_available_permissions\", \"resilience4j_timelimiter_calls_total\"]",
+                          "    .forEach(metric => pm.expect(body).to.include(metric));",
+                          "});",
+                          "pm.test(\"Métricas de negocio\", () => {",
+                          "  const body = pm.response.text();",
+                          "  [\"orders_registered_total\", \"orders_confirmed_total\", \"outbox_pending\"].forEach(metric => pm.expect(body).to.include(metric));",
+                          "});"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Orders",
+              "item": [
+                {
+                  "name": "save order",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"codeProduct\": \"AC-1550\", \"quantity\": 2}"
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                          "pm.test(\"Location presente\", () => pm.response.to.have.header(\"Location\"));",
+                          "if (pm.response.code === 201) { pm.collectionVariables.set(\"orderId\", pm.response.json().id); }",
+                          "pm.test(\"Pendiente\", () => pm.expect(pm.response.json().status).to.eql(\"pending\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save order inválida",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"codeProduct\": null}"
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "stock antes (Inventory)",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories/AC-1550"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.collectionVariables.set(\"stockBefore\", pm.response.json().stock);"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "confirm order",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders/{{orderId}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Orden completada\", () => pm.expect(pm.response.json().status).to.eql(\"completed\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "stock descontado (Inventory)",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories/AC-1550"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Stock descontado en 2\", () => pm.expect(pm.response.json().stock).to.eql(Number(pm.collectionVariables.get(\"stockBefore\")) - 2));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "confirm order ya completada",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders/{{orderId}}",
+                    "description": "Repite la confirmación: 200 sin volver a descontar stock (Idempotency-Key order-<id>)."
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Sigue completada\", () => pm.expect(pm.response.json().status).to.eql(\"completed\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save order producto inexistente",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"codeProduct\":\"NO-EXISTE\",\"quantity\":1}"
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                          "pm.collectionVariables.set(\"orderIdNoExiste\", pm.response.json().id);"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "confirm order producto inexistente",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders/{{orderIdNoExiste}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                          "pm.test(\"ProblemDetail order-rejected\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/order-rejected\"));",
+                          "pm.test(\"reason PRODUCT_NOT_FOUND\", () => pm.expect(pm.response.json().reason).to.eql(\"PRODUCT_NOT_FOUND\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "prepare inventory sin stock (Inventory)",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainISk8s}}/services-inventory/inventories",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"idProduct\":\"{{lowStockCode}}\",\"nameProduct\":\"Sin stock\",\"price\":1.00,\"stock\":1}"
+                    },
+                    "description": "Crea en Inventory ({{domainISk8s}}) un producto con stock 1 para el caso sin stock."
+                  },
+                  "event": [
+                    {
+                      "listen": "prerequest",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.collectionVariables.set(\"lowStockCode\", \"LOW-ORD-\" + pm.variables.replaceIn(\"{{$guid}}\").substring(0, 8).toUpperCase());"
+                        ]
+                      }
+                    },
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save order sin stock",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"codeProduct\":\"{{lowStockCode}}\",\"quantity\":2}"
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                          "pm.collectionVariables.set(\"orderIdSinStock\", pm.response.json().id);"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "confirm order sin stock",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders/{{orderIdSinStock}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                          "pm.test(\"ProblemDetail order-rejected\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/order-rejected\"));",
+                          "pm.test(\"reason INSUFFICIENT_STOCK\", () => pm.expect(pm.response.json().reason).to.eql(\"INSUFFICIENT_STOCK\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get order",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders/{{orderId}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get order inexistente",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders/999999"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                          "pm.test(\"ProblemDetail order-not-found\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/order-not-found\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "list orders pending",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{domainOSk8s}}/services-order/orders?status=pending"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Solo pending\", () => pm.response.json().forEach(o => pm.expect(o.status).to.eql(\"pending\")));"
+                        ]
+                      }
+                    }
+                  ]
                 }
               ]
             }

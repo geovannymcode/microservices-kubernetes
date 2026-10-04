@@ -7,7 +7,8 @@ resources:
   - service.yaml
   - hpa.yaml
   - pdb.yaml
-# Only part-of is common: the Namespace is shared with k8s/mysql, so a version label here would flip on every apply.
+  - networkpolicy.yaml
+# Only part-of is common: the Namespace is shared with k8s/infra, so a version label here would flip on every apply.
 labels:
   - pairs:
       app.kubernetes.io/part-of: geovannycode-shop

@@ -1,0 +1,30 @@
+# Inventory is internal: only Order's API pods and the ingress controller (added in the joint phase) may call it.
+# The k6 pod of "make k8s-load" (label run=k6-load) is allowed for the HPA demo.
+# Enforced only by a CNI with NetworkPolicy support (minikube --cni=calico, EKS with the VPC CNI policy agent);
+# Docker Desktop accepts the object but does not enforce it. kubelet probes are not affected.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: service-inventory
+  labels:
+    app.kubernetes.io/name: service-inventory
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: service-inventory
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: service-order
+              app.kubernetes.io/component: api
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              run: k6-load
+      ports:
+        - port: http
+          protocol: TCP

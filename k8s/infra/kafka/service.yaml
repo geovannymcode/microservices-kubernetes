@@ -1,0 +1,16 @@
+# Headless: "kafka" resolves to kafka-0. publishNotReadyAddresses lets the broker resolve itself while starting.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  labels:
+    app.kubernetes.io/name: kafka
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: kafka
+  ports:
+    - name: tcp-kafka   # Istio protocol prefix for a non-HTTP port.
+      port: 9092
+      targetPort: kafka

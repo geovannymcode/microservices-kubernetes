@@ -1,0 +1,22 @@
+# Only Order (its pods and its migration Job, both app.kubernetes.io/name=service-order) may reach PostgreSQL.
+# Enforced only by a CNI with NetworkPolicy support (minikube --cni=calico, EKS with the VPC CNI policy agent);
+# Docker Desktop accepts the object but does not enforce it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres
+  labels:
+    app.kubernetes.io/name: postgres
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: service-order
+      ports:
+        - port: 5432
+          protocol: TCP

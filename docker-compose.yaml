@@ -150,6 +150,48 @@ services:
     networks:
       - inventory
 
+  # Same image strategy as service-inventory (order-service/Dockerfile, ADR 0002): the contracts arrive as a
+  # named build context. DB_HOST/DB_PORT are not passed (the root .env holds MySQL's DB_*): the docker profile
+  # defaults to postgresql:5432, kafka:19092 and http://service-inventory:8080.
+  service-order:
+    build:
+      context: ./order-service
+      additional_contexts:
+        contracts: ./contracts
+    image: geovannycode/service-order:${ORDER_IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: service-order
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      service-inventory:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_NAME: ${POSTGRES_DB:-orderdb}
+      DB_USER: ${POSTGRES_USER:-order}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+      LIQUIBASE_CONTEXTS: ${LIQUIBASE_CONTEXTS:-local}
+      INVENTORY_CB_WAIT: ${INVENTORY_CB_WAIT:-30s}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-lgtm:4318}
+      OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-none}
+      TRACING_SAMPLING: ${TRACING_SAMPLING:-1.0}
+    ports:
+      - "127.0.0.1:${ORDER_PORT:-8081}:8081"
+    # Readiness (readinessState + r2dbc): Inventory or Kafka being down does not make Order unhealthy.
+    healthcheck:
+      test: ["CMD", "java", "-XX:TieredStopAtLevel=1", "-XX:+UseSerialGC", "-Xmx16m", "-cp", "/app/healthcheck",
+             "HealthCheck", "http://localhost:8081/services-order/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    networks:
+      - inventory
+
   # Grafana + Loki + Tempo + Prometheus + OpenTelemetry Collector in one image (course setup).
   # docker compose --profile observability up -d  ->  Grafana at http://localhost:3000
   otel-lgtm:

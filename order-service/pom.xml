@@ -21,12 +21,24 @@
         <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
         <mapstruct.version>1.6.3</mapstruct.version>
         <resilience4j.version>2.4.0</resilience4j.version>
+        <!-- r2dbc-postgresql 1.1.2 brings SCRAM 3.2 (CVE-2026-53712, HIGH, found by Trivy); 3.3+ fixes it. -->
+        <scram.version>3.4</scram.version>
         <wiremock.version>3.13.2</wiremock.version>
         <!-- Formerly swagger-request-validator; 3.0.0 is the renamed release (same com.atlassian.oai.validator API). -->
         <openapi-request-validator.version>3.0.0</openapi-request-validator.version>
     </properties>
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.ongres.scram</groupId>
+                <artifactId>scram-client</artifactId>
+                <version>${scram.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.ongres.scram</groupId>
+                <artifactId>scram-common</artifactId>
+                <version>${scram.version}</version>
+            </dependency>
             <dependency>
                 <!-- One version for every Resilience4j module. -->
                 <groupId>io.github.resilience4j</groupId>
@@ -41,6 +53,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
+            <exclusions>
+                <!-- QUIC natives for five platforms (~12 MB) only serve HTTP/3, which this service does not enable. -->
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-codec-native-quic</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -89,6 +108,13 @@
             <!-- Boot 4 moved the WebClient.Builder and HTTP service client auto-configuration out of the webflux starter. -->
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webclient</artifactId>
+            <exclusions>
+                <!-- Also pulled by reactor-netty-http for the client: HTTP/3 natives, unused. -->
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-codec-native-quic</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>io.github.resilience4j</groupId>
@@ -108,6 +134,18 @@
             <!-- Plain spring-kafka (KafkaTemplate + Mono.fromFuture): Reactor Kafka is discontinued. -->
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-kafka</artifactId>
+            <exclusions>
+                <!-- Order only produces, always with compression.type=zstd: the snappy and lz4 codecs (~3 MB with
+                     their natives) are never loaded. A consumer would need them back. -->
+                <exclusion>
+                    <groupId>org.xerial.snappy</groupId>
+                    <artifactId>snappy-java</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>at.yawk.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.mapstruct</groupId>

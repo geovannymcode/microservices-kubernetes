@@ -1,0 +1,53 @@
+# Local overlay (minikube or Docker Desktop Kubernetes).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+secretGenerator:
+  # .env is git-ignored; copy .env.example (or run make k8s-secrets). Must match k8s/infra/postgres/.env.
+  - name: service-order-db
+    namespace: geovannycode
+    envs:
+      - .env
+    options:
+      labels:
+        app.kubernetes.io/name: service-order
+configMapGenerator:
+  - name: service-order-config
+    namespace: geovannycode
+    behavior: merge
+    literals:
+      # Seed orders, as in Compose.
+      - LIQUIBASE_CONTEXTS=local
+      - TRACING_SAMPLING=1.0
+      # No collector runs locally yet; the joint phase adds one.
+      - OTEL_TRACES_EXPORTER=none
+      # A short wait so the resilience demo does not take half a minute per step.
+      - INVENTORY_CB_WAIT=15s
+patches:
+  # The image is built into the local Docker daemon, never pulled (both the Deployment and the migration Job).
+  - target:
+      kind: Deployment
+      name: service-order
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: Job
+      name: service-order-db-migration
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  # NodePort so Postman reaches it on localhost:30081 (Docker Desktop) or through "minikube service".
+  - target:
+      kind: Service
+      name: service-order
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30081

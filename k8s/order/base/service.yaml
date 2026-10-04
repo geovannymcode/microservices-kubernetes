@@ -1,0 +1,17 @@
+# In-cluster DNS: http://service-order.geovannycode.svc.cluster.local/services-order
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-order
+  labels:
+    app.kubernetes.io/name: service-order
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: service-order
+    app.kubernetes.io/component: api
+  ports:
+    - name: http   # Istio infers the protocol from the port name.
+      port: 80
+      targetPort: http
+      protocol: TCP

@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+secretGenerator:
+  # .env is git-ignored; copy .env.example (or run make k8s-secrets). Must match k8s/infra/mysql/.env.
+  - name: service-inventory-db
+    namespace: geovannycode
+    envs:
+      - .env
+    options:
+      labels:
+        app.kubernetes.io/name: service-inventory
+configMapGenerator:
+  - name: service-inventory-config
+    namespace: geovannycode
+    behavior: merge
+    literals:
+      - TRACING_SAMPLING=1.0
+      # No collector runs in minikube yet; the fase conjunta adds one.
+      - OTEL_TRACES_EXPORTER=none
+patches:
+  # The image is built inside minikube's Docker daemon, never pulled.
+  - target:
+      kind: Deployment
+      name: service-inventory
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  # NodePort so "minikube service service-inventory -n geovannycode --url" can expose it to Postman.
+  - target:
+      kind: Service
+      name: service-inventory
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      # Fixed so the Postman URL survives Service re-creation (Docker Desktop publishes it on localhost).
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30080

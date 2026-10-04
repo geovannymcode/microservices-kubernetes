@@ -5,6 +5,7 @@ namespace: geovannycode
 resources:
   - service.yaml
   - statefulset.yaml
+  - networkpolicy.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: geovannycode-shop

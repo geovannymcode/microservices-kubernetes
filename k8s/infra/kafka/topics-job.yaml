@@ -1,0 +1,63 @@
+# Topics are platform resources: Order only creates orders.events.v1 itself in local/docker/test (NewTopic).
+# Idempotent (--if-not-exists); ttlSecondsAfterFinished removes the finished Job so the next apply recreates it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-topics
+  labels:
+    app.kubernetes.io/name: kafka-topics
+    app.kubernetes.io/component: setup
+spec:
+  backoffLimit: 10
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-topics
+        app.kubernetes.io/component: setup
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: create-topics
+          image: apache/kafka@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837
+          command:
+            - /opt/kafka/bin/kafka-topics.sh
+            - --bootstrap-server
+            - kafka:9092
+            - --create
+            - --if-not-exists
+            - --topic
+            - orders.events.v1
+            - --partitions
+            - "3"
+            - --replication-factor
+            - "1"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # kafka-topics.sh writes its log4j output under /opt/kafka/logs and temp files under /tmp.
+            - name: logs
+              mountPath: /opt/kafka/logs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,63 @@
+# Placeholder for EKS; completed in the joint phase with Inventory and Notification.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+# TODO(eks): image from ECR (images: newName/newTag) for the Deployment and the migration Job.
+# TODO(eks): DB_HOST -> RDS PostgreSQL endpoint; no k8s/infra/postgres on EKS. TLS (sslmode=verify-full).
+# TODO(eks): separate users: the Job migrates with a DDL user, the pods use a DML-only user.
+# TODO(eks): KAFKA_BOOTSTRAP_SERVERS -> Amazon MSK (or Confluent Cloud) with TLS/IAM; orders.events.v1 created
+#            by the platform (Terraform/Strimzi), not by k8s/infra/kafka.
+# TODO(eks): service-order-db from AWS Secrets Manager (External Secrets Operator), never a local .env.
+# TODO(eks): IRSA annotation on the ServiceAccount; topologySpreadConstraints across zones.
+# TODO(eks): OTEL_EXPORTER_OTLP_ENDPOINT -> the cluster's collector (ADOT or OpenTelemetry Operator).
+# Actuator and Swagger off the traffic port, as in k8s/inventory/overlays/eks: the API stays on 8081 and
+# probes/Prometheus use 8082.
+configMapGenerator:
+  - name: service-order-config
+    namespace: geovannycode
+    behavior: merge
+    literals:
+      - MANAGEMENT_SERVER_PORT=8082
+      - SPRINGDOC_API_DOCS_ENABLED=false
+      - SPRINGDOC_SWAGGER_UI_ENABLED=false
+patches:
+  - target:
+      kind: Deployment
+      name: service-order
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/ports/-
+        value: {name: management, containerPort: 8082, protocol: TCP}
+      - op: replace
+        path: /spec/template/spec/containers/0/startupProbe/httpGet
+        value: {path: /actuator/health/liveness, port: management}
+      - op: replace
+        path: /spec/template/spec/containers/0/livenessProbe/httpGet
+        value: {path: /actuator/health/liveness, port: management}
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe/httpGet
+        value: {path: /actuator/health/readiness, port: management}
+      - op: replace
+        path: /spec/template/metadata/annotations/prometheus.io~1port
+        value: "8082"
+      - op: replace
+        path: /spec/template/metadata/annotations/prometheus.io~1path
+        value: /actuator/prometheus
+  # With >= 2 replicas, keep one serving during voluntary disruptions (node drains, upgrades).
+  - target:
+      kind: PodDisruptionBudget
+      name: service-order
+    patch: |-
+      - op: remove
+        path: /spec/maxUnavailable
+      - op: add
+        path: /spec/minAvailable
+        value: 1
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: service-order
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2

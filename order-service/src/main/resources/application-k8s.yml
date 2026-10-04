@@ -1,5 +1,12 @@
-# DB_*, INVENTORY_BASE_URL and KAFKA_BOOTSTRAP_SERVERS come from the ConfigMap and the Secret
+# DB_*, INVENTORY_BASE_URL, KAFKA_BOOTSTRAP_SERVERS, LIQUIBASE_CONTEXTS... come from the ConfigMap and the Secret
 # (application.yml resolves them). Readiness includes r2dbc only (application.yml).
+spring:
+  # Migrations run in a Kubernetes Job before the rollout (k8s/order/base/migration-job.yaml, ADR 0006), not in
+  # every pod: no Liquibase lock contention between replicas, and no pod stuck behind a lock a dead pod left.
+  # The Job sets SPRING_LIQUIBASE_ENABLED=true.
+  liquibase:
+    enabled: false
+
 logging:
   structured:
     format:

@@ -1,0 +1,21 @@
+# Only Inventory may reach MySQL (Flyway runs inside the service-inventory pods).
+# Enforced only by a CNI with NetworkPolicy support (minikube --cni=calico); Docker Desktop does not enforce it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mysql
+  labels:
+    app.kubernetes.io/name: mysql
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: service-inventory
+      ports:
+        - port: 3306
+          protocol: TCP

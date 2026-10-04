@@ -284,6 +284,195 @@ curl -X PUT -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e47a1-00f067aa0ba902b
   http://localhost:8081/services-order/orders/<id>
 ```
 
+## Contenedor
+
+La imagen sigue la misma estrategia que service-inventory ([ADR 0002](../docs/adr/0002-container-image.md)):
+
+- **Etapas:** Dockerfile multi-stage, `jlink` con una JRE mínima, base `gcr.io/distroless/cc-debian13`, capas de Spring Boot sin `--launcher` y AOT cache de Java 25.
+- **Ejecución:** usuario `10001:10001`, `JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"` y `EXPOSE 8081`.
+- **Lo que no lleva:** ni JDK, ni código fuente, ni `.env`, ni `liquibase-env/` (ver `.dockerignore`).
+
+**Contratos.** El build necesita `contracts/services-order.yaml` (servidor) y `contracts/services-inventory.yaml` (cliente), que están fuera de `order-service/`. Igual que en Inventory, llegan como **contexto de build con nombre** y no se copian dentro del módulo:
+
+```sh
+docker build --build-context contracts=contracts -t geovannycode/service-order:0.0.1-SNAPSHOT order-service   # desde la raíz
+```
+
+No se usa la raíz del repo como contexto: enviaría al daemon el repo entero (incluidos los `target/` de ambos servicios) y la imagen de Order se construiría distinto que la de Inventory. Compose (`additional_contexts`) y CI (`build-contexts`) pasan el mismo contexto.
+
+**Training run del AOT cache.** No necesita PostgreSQL, Kafka ni Inventory:
+
+```
+java -XX:AOTCacheOutput=/app/app.aot -Dspring.context.exit=onRefresh -Dspring.liquibase.enabled=false -jar /app/app.jar
+```
+
+- **`spring.context.exit=onRefresh`:** crea los beans y termina antes de arrancar los beans de ciclo de vida. Así no se levanta Netty, ni el relay de la outbox, ni el productor de Kafka.
+- **`spring.liquibase.enabled=false`:** evita la migración, la única conexión que se abriría durante el refresh.
+- **Pool de R2DBC:** no conecta hasta el primer uso.
+- **`KafkaAdmin`:** sin perfil activo no hay `NewTopic`, así que no intenta crear el topic.
+
+**JRE.** Lleva los mismos módulos que la de Inventory más `java.security.sasl`, que el cliente de Kafka enlaza (calculado con `jdeps`).
+
+**Peso.** Se excluyen las dependencias que no se usan:
+
+- los binarios nativos de QUIC/HTTP/3 (~12 MB, que llegan por WebFlux y por el WebClient);
+- los códecs snappy y lz4 de Kafka (el productor solo comprime con zstd).
+
+| Medición (Apple Silicon, Docker Desktop) | Valor |
+|---|---|
+| Tamaño (`docker image ls`) | 280 MB: AOT cache 100 MB, dependencias 76 MB, JRE 65 MB y base distroless ~37 MB. Inventory pesa 247 MB; la diferencia son Kafka (+zstd), Liquibase y el driver JDBC. |
+| Arranque con AOT cache (mediana de 3, contra Postgres y Kafka de Compose) | 2,08 s |
+| Arranque sin AOT cache (`-XX:AOTMode=off`) | 3,54 s (−41 % con cache) |
+| Trivy 0.75.0, HIGH/CRITICAL corregibles | 0, tras subir SCRAM (transitivo de `r2dbc-postgresql`) de 3.2 a 3.4 por CVE-2026-53712 |
+
+**Usuario.** `docker run --rm <img> id` no funciona: la imagen distroless no tiene `id` ni shell, y el `ENTRYPOINT` es `java`. Se comprueba así:
+
+```sh
+docker image inspect geovannycode/service-order:0.0.1-SNAPSHOT --format '{{.Config.User}}'   # 10001:10001
+docker top service-order -eo uid,pid,args                                                    # UID 10001
+```
+
+### Sistema completo con Compose
+
+Sin profile, `docker compose up` levanta MySQL, PostgreSQL, Kafka, service-inventory y service-order. Los profiles `observability` (Grafana/Tempo/Prometheus) y `tools` (kafka-ui, Liquibase CLI) se levantan aparte.
+
+- **Arranque:** `service-order` espera a que PostgreSQL, Kafka y service-inventory estén healthy.
+- **Healthcheck:** consulta `/services-order/actuator/health/readiness` con la misma clase `HealthCheck` de 1,5 KB que Inventory.
+- **Variables:** `DB_PASSWORD` sale de `POSTGRES_PASSWORD` del `.env` raíz. `DB_HOST` no se pasa: el perfil `docker` usa por defecto `postgresql`, `kafka:19092` y `http://service-inventory:8080`.
+
+Desde la raíz:
+
+```sh
+make up                     # docker compose up -d --build --wait: todo healthy
+make logs                   # logs JSON de los dos servicios
+make demo-circuit-breaker   # Inventory caído -> OPEN -> HALF_OPEN -> CLOSED (~40 s)
+make down
+```
+
+`make demo-circuit-breaker` (`scripts/demo-circuit-breaker.sh`) hace lo siguiente:
+
+1. Detiene service-inventory y lanza 10 confirmaciones, que responden 503: el circuito se abre tras las primeras.
+2. Muestra `/actuator/circuitbreakers` y que readiness sigue `UP`.
+3. Vuelve a levantar Inventory y espera a que el circuito pase a HALF_OPEN (`INVENTORY_CB_WAIT`, 30 s por defecto).
+4. Reintenta 3 órdenes pendientes (las llamadas de prueba de HALF_OPEN), que responden 200: el circuito queda CLOSED.
+
+**Variables `DB_*` del shell.** El `.env` de la raíz (MySQL) y `order-service/.env` (PostgreSQL) usan los mismos nombres `DB_*`, y Compose da prioridad a las variables del shell. Si en el terminal se exportó `order-service/.env` para lanzar `spring-boot:run`, un `docker compose up` recrearía MySQL con el puerto, la base y el usuario de Order. Los targets `make up/down/logs` y la demo descartan esas variables. Si usas `docker compose` a mano, hazlo desde un terminal limpio o antepón `env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASSWORD`.
+
+**Puerto 8081.** El servicio publica `127.0.0.1:${ORDER_PORT:-8081}`, el mismo puerto que usa `spring-boot:run`. Para usar uno de los dos, detén el otro, o cambia `ORDER_PORT`. El scrape de Prometheus encuentra Order en cualquiera de los dos casos.
+
+## Kubernetes
+
+Los manifiestos usan Kustomize y la misma estructura y estándares que Inventory (labels, `securityContext`, probes, recursos, HPA, PDB y rollout `maxUnavailable: 0`). Todo va en el namespace `geovannycode`:
+
+```text
+k8s/
+  namespace/                  namespace, aplicado aparte (borrar las apps nunca borra las BD)
+  infra/mysql/                MySQL de Inventory (solo local; en EKS, RDS)
+  infra/postgres/             StatefulSet postgres:17.11 + Service headless + PVC + Secret + NetworkPolicy (solo local; en EKS, RDS)
+  infra/kafka/                Kafka 4.3.1 KRaft de un nodo + Service headless + PVC + Job que crea orders.events.v1 (solo local; en EKS, MSK)
+  inventory/{base,overlays}/  service-inventory
+  order/base/                 ConfigMap, ServiceAccount, Job de migración, Deployment, Service, HPA, PDB
+  order/overlays/minikube/    Secret de BD, NodePort 30081, imagePullPolicy Never, contexto local, CB wait 15 s
+  order/overlays/eks/         placeholder con TODOs (ECR, RDS, MSK, Secrets Manager, IRSA, puerto de management)
+  overlays/{minikube,eks}/    kustomization raíz que lo incluye todo (dry-run, diff, GitOps)
+```
+
+- **Configuración** (`order/base/config.env`, ConfigMap con hash):
+  - `SPRING_PROFILES_ACTIVE=k8s`;
+  - `DB_HOST=postgres`, `DB_PORT=5432` y `DB_NAME=orderdb`;
+  - `INVENTORY_BASE_URL=http://service-inventory.geovannycode.svc.cluster.local/services-inventory`;
+  - `KAFKA_BOOTSTRAP_SERVERS=kafka:9092`;
+  - `LIQUIBASE_CONTEXTS` (`prod`, que el overlay local cambia a `local`);
+  - `INVENTORY_CB_WAIT`;
+  - variables de trazas.
+- **Secretos:** `DB_USER` y `DB_PASSWORD` llegan por `secretGenerator` desde `order/overlays/minikube/.env`, y los de PostgreSQL desde `infra/postgres/.env`. Ninguno se versiona: `make k8s-secrets` los genera a partir del `.env` de la raíz (`POSTGRES_*`).
+- **Deployment:** contenedor en el puerto 8081 (`http`), usuario 10001, raíz de solo lectura y `/tmp` en `emptyDir` (lo necesitan Netty y zstd-jni).
+  - Probes contra `/services-order/actuator/health/{liveness,readiness}`. Readiness incluye solo `readinessState` y `r2dbc`, así que ni el circuito abierto ni Kafka sacan el pod del balanceo.
+  - `startupProbe` de hasta 120 s (60 × 2 s), frente a los ~3 s medidos.
+  - `preStop` de 5 s más 20 s de apagado ordenado, dentro de los 30 s del grace period.
+- **Service:** ClusterIP `service-order`, 80 → `http` (8081). Dentro del clúster: `http://service-order.geovannycode.svc.cluster.local/services-order`.
+- **Selectores:** el Deployment, el Service y el PDB seleccionan `app.kubernetes.io/component: api`, para dejar fuera el pod del Job de migración.
+- **HPA y PDB:** el HPA va de 1 a 4 réplicas al 70 % de CPU; el overlay `eks` sube el mínimo a 2 y cambia el PDB a `minAvailable: 1`.
+- **Kafka:** el broker tiene la autocreación de topics desactivada, y el `NewTopic` de Order solo existe en `local`, `docker` y `test`. El topic lo crea el Job `kafka-topics` (idempotente, `--if-not-exists`), como un recurso de plataforma.
+
+### Migraciones: Job de Liquibase ([ADR 0006](../docs/adr/0006-liquibase-on-kubernetes.md))
+
+Los pods arrancan con `spring.liquibase.enabled=false` (`application-k8s.yml`). Las migraciones las aplica el Job `service-order-db-migration`, que usa **la misma imagen** de la app en modo "solo migrar":
+
+- `SPRING_LIQUIBASE_ENABLED=true`;
+- `-Dspring.context.exit=onRefresh`: Liquibase corre en el refresh y la JVM termina antes de levantar el servidor web, el relay o el productor de Kafka.
+
+`make k8s-migrate` borra el Job anterior (los Jobs son inmutables), aplica el overlay sin el Deployment y espera a que termine. Después `make k8s-apps` despliega los servicios. Volver a ejecutarlo no aplica nada: `Database is up to date, no changesets to execute`. El ADR explica cómo revisar el SQL (`update-sql`) y cómo liberar un lock colgado (`release-locks`).
+
+### NetworkPolicy
+
+| Destino | Acepta tráfico de |
+|---|---|
+| `service-inventory` | pods de Order (`component: api`), el namespace `ingress-nginx` (fase conjunta) y el pod `k6-load` de `make k8s-load` |
+| `postgres` | pods de Order (la app y el Job de migración) |
+| `mysql` | pods de Inventory |
+
+Docker Desktop crea las NetworkPolicy pero **no las aplica**, porque su CNI no lo soporta. Para verlas en acción hace falta un CNI con soporte, por ejemplo minikube con Calico:
+
+```sh
+minikube start --cni=calico --cpus=4 --memory=6g
+make k8s-up
+kubectl run probe -n geovannycode --rm -i --restart=Never --image=busybox:1.37 -- \
+  wget -qO- -T 3 http://service-inventory/services-inventory/actuator/health   # bloqueado: timeout
+```
+
+Con las políticas activas, Postman ya no llega a Inventory por su NodePort. Hay que pasar por Order o usar `kubectl port-forward`, que no atraviesa las NetworkPolicy.
+
+### Despliegue
+
+```sh
+make k8s-up CLUSTER=docker-desktop   # o sin CLUSTER para minikube
+make k8s-validate k8s-lint           # dry-run en el servidor, kubeconform y kube-linter
+kubectl get pods -n geovannycode     # 5 pods Running y Ready + 2 Jobs Completed
+```
+
+`make k8s-up` encadena estos pasos:
+
+1. Genera los Secret, prepara el clúster (metrics-server) y construye las dos imágenes.
+2. Aplica el namespace y la infraestructura (MySQL, PostgreSQL, Kafka), y espera sus rollouts y el Job del topic.
+3. Ejecuta el Job de migración y espera a que termine.
+4. Despliega Inventory y Order con `rollout restart` (el tag es fijo y `imagePullPolicy: Never`).
+5. Muestra las URLs: con Docker Desktop, `http://localhost:30080` (Inventory) y `http://localhost:30081` (Order).
+
+**Postman:** la carpeta *Order Service / k8s*, con el entorno `postman/order-k8s.postman_environment.json` (`domainOSk8s` y `domainISk8s`). Cubre actuator, crear, confirmar, el stock descontado en Inventory, los rechazos 409, la orden inexistente (404) y el listado. Para ver el evento:
+
+```sh
+kubectl exec -n geovannycode kafka-0 -- /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 \
+  --topic orders.events.v1 --from-beginning --timeout-ms 5000 --formatter-property print.key=true
+```
+
+### Demo de resiliencia
+
+```sh
+O=http://localhost:30081/services-order
+for i in 1 2 3; do curl -s -X POST $O/orders -H 'Content-Type: application/json' -d '{"codeProduct":"AC-1551","quantity":1}'; echo; done
+
+kubectl scale deploy/service-inventory --replicas=0 -n geovannycode
+curl -i -X PUT $O/orders/<id>                      # 503 + Retry-After: 15, para cada orden
+curl -s $O/actuator/circuitbreakers                # "state":"OPEN"
+curl -s $O/orders/<id>                             # sigue "pending"
+kubectl get pods -n geovannycode -l app.kubernetes.io/name=service-order   # 1/1 Ready, sin reinicios
+
+kubectl scale deploy/service-inventory --replicas=1 -n geovannycode
+kubectl rollout status deploy/service-inventory -n geovannycode
+# pasados 15 s (INVENTORY_CB_WAIT del overlay local) el circuito pasa a HALF_OPEN
+curl -X PUT $O/orders/<id>                         # 200 completed, las mismas órdenes; tras 3 éxitos, CLOSED
+```
+
+El HPA no interfiere: con el Deployment a 0 réplicas, el HPA deja de escalar (`ScalingDisabled`) hasta que vuelve a 1.
+
+Resultado medido (Docker Desktop, 2026-10-04):
+
+- Con Inventory a 0 réplicas, las órdenes 7, 8 y 9 respondieron 503 con `Retry-After: 15`, el circuito pasó a OPEN y las tres siguieron `pending`.
+- Al volver Inventory, las mismas tres respondieron 200 `completed` y el circuito volvió a CLOSED.
+- El log de Order muestra `CLOSED -> OPEN`, `OPEN -> HALF_OPEN` y `HALF_OPEN -> CLOSED`.
+- El pod de Order siguió 1/1 Ready y con 0 reinicios durante toda la demo.
+
 ## Tests
 
 | Nivel | Clases | Qué demuestra |

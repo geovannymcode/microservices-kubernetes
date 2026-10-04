@@ -293,18 +293,21 @@ Los manifiestos están en `../k8s` y usan Kustomize (`kubectl apply -k`):
 
 ```text
 k8s/
-  namespace/            namespace geovannycode, aplicado aparte: borrar la app no borra la BD
-  base/                 ServiceAccount, ConfigMap (generado), Deployment, Service, HPA, PDB
-  mysql/                StatefulSet mysql:8.4 + Service headless + PVC + Secret: solo dev (en EKS será RDS)
-  overlays/minikube/    Secret de BD, NodePort 30080, imagePullPolicy Never, muestreo 1.0, sin exportador OTLP
-  overlays/eks/         placeholder con TODOs (ECR, RDS, Secrets Manager, IRSA, recursos, HPA min 2)
-  addons/metrics-server metrics-server para Docker Desktop (minikube usa su addon)
-  load/inventories.js   carga k6 para la prueba del HPA
+  namespace/                      namespace geovannycode, aplicado aparte: borrar las apps no borra las BD
+  infra/mysql/                    StatefulSet mysql:8.4 + Service headless + PVC + Secret + NetworkPolicy: solo dev (en EKS será RDS)
+  infra/postgres/, infra/kafka/   dependencias de Order (ver README de Order)
+  inventory/base/                 ServiceAccount, ConfigMap (generado), Deployment, Service, HPA, PDB, NetworkPolicy
+  inventory/overlays/minikube/    Secret de BD, NodePort 30080, imagePullPolicy Never, muestreo 1.0, sin exportador OTLP
+  inventory/overlays/eks/         placeholder con TODOs (ECR, RDS, Secrets Manager, IRSA, recursos, HPA min 2)
+  order/                          manifiestos de Order (ver README de Order)
+  overlays/minikube/, overlays/eks/  kustomization raíz que lo incluye todo (dry-run, diff, GitOps)
+  addons/metrics-server/          metrics-server para Docker Desktop (minikube usa su addon)
+  load/inventories.js             carga k6 para la prueba del HPA
 ```
 
 ### Decisiones
 
-- **Secretos:** ninguno se versiona. `k8s/mysql/.env` y `k8s/overlays/minikube/.env` están ignorados por Git y generan los Secret con `secretGenerator`. `make k8s-secrets` los crea a partir del `.env` de la raíz (las mismas credenciales que Compose); también hay un `.env.example` en cada carpeta.
+- **Secretos:** ninguno se versiona. `k8s/infra/mysql/.env` y `k8s/inventory/overlays/minikube/.env` están ignorados por Git y generan los Secret con `secretGenerator`. `make k8s-secrets` los crea a partir del `.env` de la raíz (las mismas credenciales que Compose); también hay un `.env.example` en cada carpeta.
 - **ConfigMap:** también se genera con `configMapGenerator`. Su nombre lleva un hash del contenido, así que cambiar la configuración provoca un rollout; con un ConfigMap estático los pods seguirían con los valores viejos.
 - **Réplicas:** el Deployment no declara `replicas`. Las gestiona el HPA (min 1, max 4); si `replicas` estuviera en el manifiesto, cada `kubectl apply` reiniciaría la escala a ese valor.
 - **Sin límite de CPU:** con cuotas CFS, la JVM se queda sin CPU justo en el arranque (JIT, carga de clases) y los probes fallan. Se pide 250m, que es lo que usan el scheduler y el porcentaje del HPA, y la CPU sobrante del nodo se aprovecha sin throttling. La memoria sí está limitada a 768Mi. En el pod, `MaxRAMPercentage=60` (heap de ~460Mi) y `MaxDirectMemorySize=96m` dejan margen para el metaspace, el code cache y los hilos; `ActiveProcessorCount=2` evita que la JVM se dimensione para todos los cores del nodo (ver los resultados verificados).
@@ -332,15 +335,16 @@ k8s/
 Desde la raíz del curso:
 
 ```sh
-make k8s-up                          # minikube: start, metrics-server, imagen en su Docker, MySQL, app y URL
+make k8s-up                          # minikube: start, metrics-server, imágenes en su Docker, infra, migración de Order, apps y URLs
 make k8s-up CLUSTER=docker-desktop   # Kubernetes de Docker Desktop (modo kubeadm: comparte las imágenes de Docker)
 make k8s-validate                    # kubectl apply -k --dry-run=server
+make k8s-lint                        # kubeconform + kube-linter
 kubectl get pods -n geovannycode
 ```
 
 - En **minikube**, `make k8s-url` ejecuta `minikube service service-inventory -n geovannycode --url`. Con el driver Docker en macOS abre un túnel en `127.0.0.1:<puerto>` y se queda bloqueado: mantenlo abierto mientras usas Postman.
 - En **Docker Desktop**, el NodePort fijo se publica en `http://localhost:30080`.
-- `make k8s-down` borra solo la app; MySQL y su PVC se conservan.
+- `make k8s-down` borra solo las apps; MySQL, PostgreSQL, Kafka y sus PVC se conservan.
 - `make k8s-purge` borra el namespace entero, incluidos los datos.
 - `make k8s-up` reconstruye la imagen y hace `rollout restart`: el tag es fijo y `imagePullPolicy: Never`, así que sin el reinicio los pods seguirían con la imagen anterior.
 

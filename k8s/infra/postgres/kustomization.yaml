@@ -1,0 +1,20 @@
+# Development database for minikube / Docker Desktop only. On EKS Order uses Amazon RDS for PostgreSQL.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: geovannycode
+resources:
+  - service.yaml
+  - statefulset.yaml
+  - networkpolicy.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: geovannycode-shop
+    includeTemplates: true
+secretGenerator:
+  # .env is git-ignored; copy .env.example (or run make k8s-secrets) and fill it in.
+  - name: postgres-credentials
+    envs:
+      - .env
+generatorOptions:
+  labels:
+    app.kubernetes.io/name: postgres

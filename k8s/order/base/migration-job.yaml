@@ -1,0 +1,73 @@
+# Liquibase migrations as a Job (ADR 0006): runs before the Deployment is rolled out, and the pods start with
+# spring.liquibase.enabled=false (application-k8s.yml). It uses the application image itself, so the changelog
+# is always the one shipped with the code being deployed. spring.context.exit=onRefresh stops the JVM right
+# after the context refresh (where Liquibase runs) and before the web server, the outbox relay or the Kafka
+# producer start. Re-running it is safe: Liquibase skips changeSets already in DATABASECHANGELOG.
+# Jobs are immutable: make k8s-up deletes the previous one, and ttlSecondsAfterFinished cleans it up anyway.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: service-order-db-migration
+  labels:
+    app.kubernetes.io/name: service-order
+    app.kubernetes.io/component: migration
+    app.kubernetes.io/version: 0.0.1-SNAPSHOT
+spec:
+  # PostgreSQL may still be starting: a failed attempt exits 1 and the Job retries with exponential backoff.
+  backoffLimit: 6
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: service-order
+        app.kubernetes.io/component: migration
+        app.kubernetes.io/version: 0.0.1-SNAPSHOT
+    spec:
+      restartPolicy: Never
+      serviceAccountName: service-order
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: liquibase
+          image: geovannycode/service-order:0.0.1-SNAPSHOT
+          envFrom:
+            - configMapRef:
+                name: service-order-config
+            - secretRef:
+                name: service-order-db
+          env:
+            - name: SPRING_LIQUIBASE_ENABLED
+              value: "true"
+            # Tracing off: a one-shot process has nothing to trace and no collector to wait for on exit.
+            - name: MANAGEMENT_TRACING_EXPORT_ENABLED
+              value: "false"
+            # spring.context.exit is read as a JVM system property, not from the Environment.
+            - name: JAVA_TOOL_OPTIONS
+              value: >-
+                -XX:MaxRAMPercentage=60 -XX:ActiveProcessorCount=2 -XX:+ExitOnOutOfMemoryError
+                -Dspring.context.exit=onRefresh
+          resources:
+            requests:
+              cpu: 250m
+              memory: 384Mi
+            limits:
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

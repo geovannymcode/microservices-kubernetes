@@ -44,8 +44,9 @@ scrape_configs:
     scrape_interval: 5s
     metrics_path: /services-order/actuator/prometheus
     static_configs:
-      # Order runs on the host (spring-boot:run); host.docker.internal reaches it from the container.
-      - targets: ["host.docker.internal:8081"]
+      # service-order:8081 when it runs in Compose; host.docker.internal:8081 when it runs on the host
+      # (spring-boot:run). Only one of them is up at a time; the dashboard filters by application, not target.
+      - targets: ["service-order:8081", "host.docker.internal:8081"]
   - job_name: service-inventory
     scrape_interval: 5s
     metrics_path: /services-inventory/actuator/prometheus

@@ -1,0 +1,12 @@
+target/
+.git/
+.gitattributes
+.idea/
+.vscode/
+.env
+.env.*
+*.md
+!README.md
+*.log
+# Liquibase CLI image (docker compose run liquibase), not part of the service image.
+liquibase-env/
