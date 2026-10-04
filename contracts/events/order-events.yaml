@@ -1,0 +1,204 @@
+asyncapi: 3.1.0
+info:
+  title: Eventos de órdenes
+  version: 1.0.0
+  description: >-
+    Eventos que Order Service publica cuando una orden termina su ciclo (completada o cancelada). Los consume
+    Notification Service.
+
+
+    **Entrega al menos una vez.** Order escribe cada evento en una outbox en la misma transacción que el cambio
+    de estado, y un relay lo publica después. Si el relay cae entre el ack de Kafka y el marcado del evento como
+    publicado, el evento se vuelve a enviar. Por eso **el consumidor debe deduplicar por `eventId`** (por ejemplo,
+    guardando los `eventId` procesados), y procesar dos veces el mismo `eventId` no debe tener efecto.
+
+
+    **Orden.** La key del mensaje es el id de la orden, así que todos los eventos de una orden van a la misma
+    partición y se consumen en el orden en que se crearon. No hay orden garantizado entre órdenes distintas.
+
+
+    **Evolución.** Los cambios compatibles (campos opcionales nuevos) mantienen `version: 1`; el consumidor debe
+    ignorar los campos que no conoce. Un cambio incompatible publica `version: 2` en un topic nuevo
+    (`orders.events.v2`) durante la transición. Schema Registry con Avro queda como mejora opcional.
+  contact:
+    name: Codearti
+defaultContentType: application/json
+
+servers:
+  local:
+    host: localhost:9092
+    protocol: kafka
+    description: Kafka de docker-compose (KRaft, un nodo). Desde contenedores de la red, kafka:19092.
+
+channels:
+  ordersEvents:
+    address: orders.events.v1
+    title: Eventos de órdenes
+    description: 3 particiones en local; key = id de la orden.
+    messages:
+      orderCompleted:
+        $ref: '#/components/messages/OrderCompleted'
+      orderCanceled:
+        $ref: '#/components/messages/OrderCanceled'
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 1
+        bindingVersion: 0.5.0
+
+operations:
+  publishOrderEvents:
+    action: send
+    channel:
+      $ref: '#/channels/ordersEvents'
+    title: Publicar eventos de órdenes
+    summary: Order publica un evento por cada orden completada o cancelada (vía outbox).
+    messages:
+      - $ref: '#/channels/ordersEvents/messages/orderCompleted'
+      - $ref: '#/channels/ordersEvents/messages/orderCanceled'
+
+components:
+  messages:
+    OrderCompleted:
+      name: OrderCompleted
+      title: Orden completada
+      summary: Inventory descontó el stock y la orden quedó completed.
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/OrderEvent'
+          - type: object
+            properties:
+              eventType:
+                const: OrderCompleted
+              data:
+                type: object
+                properties:
+                  status:
+                    const: completed
+      bindings:
+        kafka:
+          key:
+            $ref: '#/components/schemas/OrderKey'
+          bindingVersion: 0.5.0
+      examples:
+        - name: completada
+          headers:
+            eventType: OrderCompleted
+            eventId: 3f1c9a52-6b0e-4d7a-9a51-2f5c1e7b8d10
+          payload:
+            eventId: 3f1c9a52-6b0e-4d7a-9a51-2f5c1e7b8d10
+            eventType: OrderCompleted
+            occurredAt: '2026-10-04T15:00:00.123456Z'
+            version: 1
+            data:
+              orderId: 42
+              codeProduct: AC-1550
+              quantity: 2
+              status: completed
+
+    OrderCanceled:
+      name: OrderCanceled
+      title: Orden cancelada
+      summary: Inventory rechazó el descuento y la orden quedó canceled; cancelReason indica el motivo.
+      headers:
+        $ref: '#/components/schemas/EventHeaders'
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/OrderEvent'
+          - type: object
+            properties:
+              eventType:
+                const: OrderCanceled
+              data:
+                type: object
+                required: [cancelReason]
+                properties:
+                  status:
+                    const: canceled
+      bindings:
+        kafka:
+          key:
+            $ref: '#/components/schemas/OrderKey'
+          bindingVersion: 0.5.0
+      examples:
+        - name: sinStock
+          headers:
+            eventType: OrderCanceled
+            eventId: 8b2d4f6e-1a3c-4e5f-8a7b-9c0d1e2f3a4b
+          payload:
+            eventId: 8b2d4f6e-1a3c-4e5f-8a7b-9c0d1e2f3a4b
+            eventType: OrderCanceled
+            occurredAt: '2026-10-04T15:01:00.654321Z'
+            version: 1
+            data:
+              orderId: 43
+              codeProduct: AC-1550
+              quantity: 5
+              status: canceled
+              cancelReason: INSUFFICIENT_STOCK
+
+  schemas:
+    OrderKey:
+      type: string
+      description: Id de la orden en texto (por ejemplo "42"). Garantiza el orden por orden.
+      pattern: '^[1-9][0-9]*$'
+
+    EventHeaders:
+      type: object
+      required: [eventType, eventId]
+      description: Headers Kafka (UTF-8). Permiten filtrar o deduplicar sin deserializar el cuerpo.
+      properties:
+        eventType:
+          type: string
+          enum: [OrderCompleted, OrderCanceled]
+        eventId:
+          type: string
+          format: uuid
+
+    OrderEvent:
+      type: object
+      description: Envoltura común de todos los eventos de órdenes.
+      required: [eventId, eventType, occurredAt, version, data]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Identificador único del evento; clave de deduplicación del consumidor.
+        eventType:
+          type: string
+          enum: [OrderCompleted, OrderCanceled]
+        occurredAt:
+          type: string
+          format: date-time
+          description: Momento (UTC) en que se guardó el cambio de estado.
+        version:
+          type: integer
+          const: 1
+          description: Versión del esquema del evento.
+        data:
+          $ref: '#/components/schemas/OrderEventData'
+
+    OrderEventData:
+      type: object
+      required: [orderId, codeProduct, quantity, status]
+      properties:
+        orderId:
+          type: integer
+          format: int64
+          minimum: 1
+        codeProduct:
+          type: string
+          pattern: '^[A-Z0-9-]{1,50}$'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 5
+        status:
+          type: string
+          enum: [completed, canceled]
+        cancelReason:
+          type: string
+          enum: [PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK]
+          description: Solo presente cuando status es canceled.

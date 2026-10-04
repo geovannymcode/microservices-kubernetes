@@ -2,6 +2,14 @@
 spring:
   liquibase:
     contexts: test
+  # Kafka outages are simulated by pausing the container: give up quickly so the event stays pending.
+  kafka:
+    producer:
+      properties:
+        linger.ms: 0
+        delivery.timeout.ms: 3000
+        request.timeout.ms: 1000
+        max.block.ms: 2000
 
 # Short timings so the resilience tests stay fast; the policy shape is the same as application.yml.
 resilience4j:
@@ -14,3 +22,6 @@ resilience4j:
       inventory:
         wait-duration: 20ms
         enable-randomized-wait: false
+
+outbox:
+  poll-interval: 200ms

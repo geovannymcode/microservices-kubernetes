@@ -41,6 +41,14 @@ final class ArchitectureTest {
     }
 
     @Test
+    void onlyTheMessagingAdapterUsesKafka() {
+        noClasses().that().resideOutsideOfPackage(BASE + ".infrastructure.messaging..")
+                .should().dependOnClassesThat().resideInAnyPackage("org.apache.kafka..", "org.springframework.kafka..")
+                .because("OrderService writes to the outbox; only OutboxRelay talks to Kafka")
+                .check(CLASSES);
+    }
+
+    @Test
     void packagesAreFreeOfCycles() {
         slices().matching("com.geovannycode.order.order.(**)").should().beFreeOfCycles().check(CLASSES);
     }

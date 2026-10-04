@@ -3,9 +3,11 @@ package com.geovannycode.order;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 // One container for JDBC (Liquibase) and R2DBC (the app): @ServiceConnection derives both connection details.
+// Kafka too: every full context runs the outbox relay, which needs a real broker.
 @TestConfiguration(proxyBeanMethods = false)
 public final class TestcontainersConfiguration {
 
@@ -15,5 +17,13 @@ public final class TestcontainersConfiguration {
         // postgres:17.11, same digest as docker-compose.yaml. Testcontainers rejects "name:tag@digest", so no tag.
         return new PostgreSQLContainer(
                 "postgres@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f");
+    }
+
+    @Bean
+    @ServiceConnection
+    KafkaContainer kafkaContainer() {
+        // apache/kafka:4.3.1 in KRaft mode, same digest as docker-compose.yaml.
+        return new KafkaContainer(
+                "apache/kafka@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837");
     }
 }

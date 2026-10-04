@@ -1,0 +1,67 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-create-table-outbox-event
+      author: geovannycode
+      comment: >-
+        Outbox transaccional: el cambio de estado de la orden y su evento se guardan en la misma transacción;
+        OutboxRelay publica en Kafka los eventos sin published_at.
+      changes:
+        - createTable:
+            tableName: outbox_event
+            remarks: Eventos de dominio pendientes o ya publicados en Kafka
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  remarks: eventId del evento; el consumidor deduplica por este valor
+                  constraints:
+                    primaryKey: true
+                    primaryKeyName: pk_outbox_event
+                    nullable: false
+              - column:
+                  name: aggregate_type
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: aggregate_id
+                  type: VARCHAR(50)
+                  remarks: Key del mensaje en Kafka (id de la orden)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: event_type
+                  type: VARCHAR(100)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: payload
+                  type: JSONB
+                  remarks: Envoltura completa del evento, tal como se publica
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: published_at
+                  type: TIMESTAMP WITH TIME ZONE
+      rollback:
+        - dropTable:
+            tableName: outbox_event
+
+  - changeSet:
+      id: 003-create-index-outbox-event-unpublished
+      author: geovannycode
+      comment: >-
+        Índice parcial para el relay: solo contiene los pendientes, así que sigue siendo pequeño aunque la tabla
+        guarde días de eventos publicados. createIndex no admite WHERE, por eso es SQL.
+      changes:
+        - sql:
+            sql: CREATE INDEX idx_outbox_event_unpublished ON outbox_event (created_at) WHERE published_at IS NULL
+      rollback:
+        - sql:
+            sql: DROP INDEX idx_outbox_event_unpublished

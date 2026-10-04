@@ -26,6 +26,26 @@ spring:
     pool:
       initial-size: 2
       max-size: 10
+  # Producer only (Notification consumes). The value is the JSON envelope serialized with Jackson 3 when it was
+  # written to the outbox (payload JSONB), so it travels as a String without a second serialization.
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      compression-type: zstd
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        linger.ms: 5
+        # A failed send must give up well before the next cycles pile up; the event simply stays pending.
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 10000
+        max.block.ms: 5000
+    admin:
+      # Topic creation (local/docker/test) must not hold startup for long when Kafka is down: Order keeps
+      # working and the outbox waits.
+      operation-timeout: 5s
 
 server:
   port: 8081
@@ -40,11 +60,23 @@ management:
     health:
       probes:
         enabled: true
+      group:
+        # Explicitly only the application state: neither Kafka nor Inventory may take Order out of rotation.
+        # With Kafka down, orders are still confirmed and their events wait in the outbox.
+        readiness:
+          include: readinessState
   health:
     # Shows the inventory circuit in /actuator/health; allowHealthIndicatorToFail=false keeps an Inventory
     # outage from marking Order itself as DOWN (probes are unaffected either way).
     circuitbreakers:
       enabled: true
+
+outbox:
+  topic: orders.events.v1
+  poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
+  batch-size: ${OUTBOX_BATCH_SIZE:50}
+  retention: ${OUTBOX_RETENTION:7d}
+  cleanup-interval: 1h
 
 inventory:
   client:

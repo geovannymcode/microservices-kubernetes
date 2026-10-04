@@ -24,8 +24,8 @@ Microservicio reactivo de órdenes con Java 25, Spring Boot 4.1.1, WebFlux y R2D
 2. **Base de datos**, desde la raíz:
 
    ```sh
-   docker compose up -d postgresql
-   docker compose ps postgresql                          # healthy
+   docker compose up -d postgresql kafka
+   docker compose ps postgresql kafka                    # healthy
    ```
 
 3. **Aplicación**, desde `order-service`:
@@ -49,6 +49,9 @@ Todas las conexiones se leen de variables de entorno; no hay credenciales en el 
 | `LIQUIBASE_CONTEXTS` | `local` |
 | `INVENTORY_BASE_URL` | `http://localhost:8080/services-inventory` |
 | `INVENTORY_CB_WAIT` | `30s` (tiempo del circuito abierto) |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` (desde contenedores de Compose: `kafka:19092`) |
+| `OUTBOX_POLL_INTERVAL` / `OUTBOX_BATCH_SIZE` | `1s` / `50` |
+| `OUTBOX_RETENTION` | `7d` (antigüedad a partir de la cual se borran los eventos ya publicados) |
 
 ## Base de datos y Liquibase
 
@@ -134,6 +137,56 @@ Postman: carpeta `Order Service / local` con el environment `postman/order-local
   Los rechazos de negocio no cuentan como fallos del circuito. El perfil `local` reduce la ventana a 5 y el rate limiter a 10 por minuto para la demo. No se usa Spring Cloud.
 - **Actuator:** `/services-order/actuator/circuitbreakers` y `/circuitbreakerevents`.
 
+## Eventos en Kafka (outbox)
+
+Order publica `OrderCompleted` y `OrderCanceled` en el topic `orders.events.v1` para Notification. El contrato está en [`contracts/events/order-events.yaml`](../contracts/events/order-events.yaml) (AsyncAPI 3.1).
+
+**Por qué outbox.** Guardar la orden y luego publicar son dos sistemas distintos; un fallo entre ambos pasos deja un evento perdido o un evento de un cambio que no se guardó. Por eso `OrderService` no publica en Kafka:
+
+1. Inventory responde (fuera de cualquier transacción).
+2. En **una** transacción reactiva (`TransactionalOperator`): `save` de la orden (`completed` o `canceled`) e `INSERT` en `outbox_event`. Si cualquiera falla, se deshacen ambos (un conflicto de versión, por ejemplo, no deja evento).
+3. `OutboxRelay` publica después lo que esté pendiente.
+
+**Relay.** Cada `OUTBOX_POLL_INTERVAL`:
+
+- Bloquea un lote con `SELECT ... FOR UPDATE SKIP LOCKED LIMIT 50`: con varias réplicas, cada una toma filas distintas sin esperar a las otras.
+- Envía los eventos en orden con `KafkaTemplate` (`Mono.fromFuture`, en `boundedElastic`, porque `send` puede bloquear mientras busca metadatos).
+- Marca `published_at` solo en los que Kafka confirmó y hace commit. Si un envío falla, el lote se corta ahí y el resto se reintenta en el siguiente ciclo. Si el lote salió completo, encadena otro de inmediato.
+
+Una vez por hora borra los eventos publicados con más de `OUTBOX_RETENTION`.
+
+**Entrega al menos una vez.** Si el relay cae después del ack de Kafka y antes del commit, el evento se reenvía. El consumidor deduplica por `eventId`, como indica el AsyncAPI.
+
+**Mensaje.**
+
+- Key: id de la orden, lo que garantiza el orden por orden.
+- Headers: `eventType` y `eventId`.
+- Valor: la envoltura JSON (`eventId`, `eventType`, `occurredAt`, `version: 1` y `data`), serializada con Jackson 3 al escribirla en la outbox. Se guarda en `payload` (JSONB) y el relay publica ese contenido sin volver a serializar. JSONB normaliza el orden de las claves y los espacios, así que el consumidor no debe depender del orden de los campos.
+
+**Productor.** `acks=all`, `enable.idempotence=true` y `compression.type=zstd`. Se usa spring-kafka puro: Reactor Kafka está descontinuado.
+
+**Topic.** Lo crea un `NewTopic` (3 particiones, réplica 1) solo en los perfiles `local`, `docker` y `test`. En Kubernetes el topic es un recurso de la plataforma, y el broker de Compose tiene la autocreación desactivada.
+
+**Kafka caído.** Order sigue registrando y confirmando órdenes, y los eventos esperan en la outbox. Readiness incluye solo `readinessState`; Kafka no tiene indicador de salud en Boot y queda fuera a propósito.
+
+**Probarlo a mano**, desde la raíz:
+
+```sh
+docker compose up -d kafka
+docker compose --profile tools up -d kafka-ui          # http://localhost:8085 -> Topics -> orders.events.v1
+docker exec order-kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:19092 \
+  --topic orders.events.v1 --from-beginning --property print.key=true --property print.headers=true
+```
+
+Confirma una orden (`PUT /services-order/orders/{id}`) y aparece un `OrderCompleted`. Con un producto inexistente aparece un `OrderCanceled` con `cancelReason: PRODUCT_NOT_FOUND`. Para ver los eventos pendientes:
+
+```sh
+docker exec order-postgres psql -U order -d orderdb -c \
+  "SELECT event_type, aggregate_id, created_at, published_at FROM outbox_event ORDER BY created_at DESC LIMIT 10"
+```
+
+**Mejoras opcionales (no incluidas):** Schema Registry con Avro o JSON Schema para validar el contrato en el broker, y CDC con Debezium en lugar de polling.
+
 ## Tests
 
 | Nivel | Clases | Qué demuestra |
@@ -142,10 +195,11 @@ Postman: carpeta `Order Service / local` con el environment `postman/order-local
 | Slice web | `OrdersApiTest` (`@WebFluxTest` + `@MockitoBean`) | Status, `Location`, `Retry-After`, `Content-Type` y cuerpo de cada endpoint; `ProblemDetail` de 400, 404, 409, 503 y 500; NDJSON y SSE. |
 | Contrato del consumidor | `InventoryContractTest` | Las respuestas de WireMock (200, 404, 409 y 422, en `InventoryStubs`) y la petición que envía el gateway cumplen `contracts/services-inventory.yaml`. Si Inventory cambia su contrato, el build falla. |
 | Arquitectura | `ArchitectureTest` (ArchUnit) | `api` no usa `infrastructure`, `domain` no depende de Spring, solo `infrastructure.inventory` usa WebClient, HTTP service clients y Resilience4j, y no hay ciclos. |
+| Outbox (Failsafe) | `OutboxIT` (PostgreSQL y Kafka en Testcontainers) | Una confirmación produce exactamente un mensaje con key y headers correctos y deja `published_at`; un rechazo produce `OrderCanceled` con `cancelReason`; con Kafka pausado la confirmación responde 200, readiness sigue `UP` y el evento se publica al volver; si falla el guardado de la orden o el `INSERT` en la outbox, no queda ni evento ni cambio de estado; dos relays en paralelo no publican el mismo evento dos veces. |
 | Integración (Failsafe, `*IT`) | `OrderApiIT`, `InventoryGatewayIT`, `OrderRepositoryIT` | HTTP real contra PostgreSQL 17.11 (Testcontainers 2), con WireMock como Inventory: flujo feliz, rechazo con orden `canceled` persistida, Inventory caído con 503 y orden `pending`, 20 PUT concurrentes sobre la misma orden (repetido 5 veces) y resiliencia del gateway. |
 | Sistema (`-Psystem-tests`) | `OrderInventorySystemIT` | Order contra la imagen real `codearti/service-inventory` y MySQL: stock 10, 15 órdenes de 1 unidad confirmadas dos veces en paralelo. Resultado: 10 `completed`, 5 `canceled` por `INSUFFICIENT_STOCK` y stock final 0. |
 
-Cada test es independiente: en `@BeforeEach` se vacía la tabla `order_shop`, se reinicia WireMock y se resetea el circuit breaker. No hay `Thread.sleep`: la espera de los tests asíncronos va con `StepVerifier` y timeouts.
+Todos los contextos completos levantan PostgreSQL y Kafka (`TestcontainersConfiguration`, con los mismos digests que Compose), porque el relay corre en cada uno. Cada test es independiente: en `@BeforeEach` se vacía la tabla `order_shop`, se reinicia WireMock y se resetea el circuit breaker. No hay `Thread.sleep`: la espera de los tests asíncronos va con `StepVerifier` y timeouts.
 
 Liquibase corre el changelog real con el contexto `test` (`src/test/resources/application-test.yml`), sin datos semilla.
 

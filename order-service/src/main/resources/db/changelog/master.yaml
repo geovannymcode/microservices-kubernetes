@@ -7,4 +7,6 @@ databaseChangeLog:
   - include:
       file: db/changelog/002-order-reference.yaml
   - include:
+      file: db/changelog/003-create-outbox-event.yaml
+  - include:
       file: db/changelog/900-seed-orders.yaml

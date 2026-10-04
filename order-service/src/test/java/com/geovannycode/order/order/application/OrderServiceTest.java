@@ -11,6 +11,7 @@ import com.geovannycode.order.order.domain.OrderNotFoundException;
 import com.geovannycode.order.order.domain.OrderRejectedException;
 import com.geovannycode.order.order.domain.OrderStatus;
 import com.geovannycode.order.order.infrastructure.inventory.InventoryGateway;
+import com.geovannycode.order.order.infrastructure.messaging.OutboxWriter;
 import com.geovannycode.order.order.infrastructure.persistence.OrderEntity;
 import com.geovannycode.order.order.infrastructure.persistence.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -29,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -43,11 +46,16 @@ final class OrderServiceTest {
 
     @Mock private OrderRepository repository;
     @Mock private InventoryGateway inventory;
+    @Mock private OutboxWriter outbox;
+    @Mock private TransactionalOperator transactions;
     private OrderService service;
 
     @BeforeEach
     void createService() {
-        service = new OrderService(repository, inventory, new OrderMapperImpl());
+        // Pass-through transaction; OutboxIT covers the real commit and rollback against PostgreSQL.
+        lenient().when(transactions.transactional(any(Mono.class))).thenAnswer(call -> call.getArgument(0));
+        lenient().when(outbox.append(any(OrderEntity.class))).thenReturn(Mono.empty());
+        service = new OrderService(repository, inventory, new OrderMapperImpl(), outbox, transactions);
     }
 
     private static OrderEntity order(OrderStatus status) {
@@ -105,7 +113,7 @@ final class OrderServiceTest {
         StepVerifier.create(service.confirm(ID))
                 .assertNext(response -> assertThat(response.getStatus().getValue()).isEqualTo("completed"))
                 .verifyComplete();
-        verifyNoInteractions(inventory);
+        verifyNoInteractions(inventory, outbox);
         verify(repository, never()).save(any());
     }
 
@@ -129,6 +137,7 @@ final class OrderServiceTest {
         verify(repository).save(saved.capture());
         assertThat(saved.getValue().status()).isEqualTo(OrderStatus.COMPLETED);
         assertThat(saved.getValue().cancelReason()).isNull();
+        verify(outbox).append(saved.getValue());
     }
 
     @Test
@@ -147,6 +156,7 @@ final class OrderServiceTest {
         verify(repository).save(saved.capture());
         assertThat(saved.getValue().status()).isEqualTo(OrderStatus.CANCELED);
         assertThat(saved.getValue().cancelReason()).isEqualTo(CancelReason.PRODUCT_NOT_FOUND);
+        verify(outbox).append(saved.getValue());
     }
 
     @Test
@@ -156,6 +166,7 @@ final class OrderServiceTest {
                 .thenReturn(Mono.error(new InventoryUnavailableException(new RuntimeException("down"))));
         StepVerifier.create(service.confirm(ID)).expectError(InventoryUnavailableException.class).verify();
         verify(repository, never()).save(any());
+        verifyNoInteractions(outbox);
     }
 
     @Test
@@ -169,6 +180,18 @@ final class OrderServiceTest {
                 .assertNext(response -> assertThat(response.getStatus().getValue()).isEqualTo("completed"))
                 .verifyComplete();
         verify(inventory, times(1)).reserveStock(anyLong(), anyString(), anyInt());
+        // The losing save failed, so its event was never appended: the winner wrote the only one.
+        verifyNoInteractions(outbox);
+    }
+
+    @Test
+    void outboxFailureFailsTheConfirmationInsteadOfLosingTheEvent() {
+        when(repository.findById(ID)).thenReturn(Mono.just(order(OrderStatus.PENDING)));
+        when(inventory.reserveStock(ID, "AC-1550", 2)).thenReturn(Mono.empty());
+        saveReturnsArgument();
+        when(outbox.append(any(OrderEntity.class))).thenReturn(Mono.error(new IllegalStateException("outbox")));
+        StepVerifier.create(service.confirm(ID)).expectErrorMessage("outbox").verify();
+        verify(transactions).transactional(any(Mono.class));
     }
 
     @Test

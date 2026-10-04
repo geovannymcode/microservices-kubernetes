@@ -9,6 +9,7 @@ import com.geovannycode.order.order.domain.OrderNotFoundException;
 import com.geovannycode.order.order.domain.OrderRejectedException;
 import com.geovannycode.order.order.domain.OrderStatus;
 import com.geovannycode.order.order.infrastructure.inventory.InventoryGateway;
+import com.geovannycode.order.order.infrastructure.messaging.OutboxWriter;
 import com.geovannycode.order.order.infrastructure.persistence.OrderEntity;
 import com.geovannycode.order.order.infrastructure.persistence.OrderRepository;
 import org.jspecify.annotations.Nullable;
@@ -16,13 +17,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.reactive.TransactionalOperator;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 /**
- * Order use cases. Deliberately without @Transactional: a database transaction must never stay open while
+ * Order use cases. No @Transactional on the methods: a database transaction must never stay open while
  * waiting for Inventory, and a cancellation has to persist even though the request then fails with 409.
+ * Only the state change and its outbox event share a (short) transaction, after Inventory has answered.
  */
 @Service
 public class OrderService {
@@ -35,11 +38,16 @@ public class OrderService {
     private final OrderRepository repository;
     private final InventoryGateway inventory;
     private final OrderMapper mapper;
+    private final OutboxWriter outbox;
+    private final TransactionalOperator transactions;
 
-    public OrderService(OrderRepository repository, InventoryGateway inventory, OrderMapper mapper) {
+    public OrderService(OrderRepository repository, InventoryGateway inventory, OrderMapper mapper, OutboxWriter outbox,
+                        TransactionalOperator transactions) {
         this.repository = repository;
         this.inventory = inventory;
         this.mapper = mapper;
+        this.outbox = outbox;
+        this.transactions = transactions;
     }
 
     public Mono<OrderResponse> create(OrderRequest request) {
@@ -86,7 +94,7 @@ public class OrderService {
                 .doOnError(InventoryUnavailableException.class, unavailable -> LOG.error(
                         "Inventario no disponible, la orden sigue pendiente: orderId={}, codeProduct={}",
                         id, order.codeProduct(), unavailable))
-                .then(Mono.defer(() -> repository.save(order.complete())))
+                .then(Mono.defer(() -> saveWithEvent(order.complete())))
                 .doOnNext(completed -> LOG.info("Orden completada: orderId={}, codeProduct={}, quantity={}",
                         id, completed.codeProduct(), completed.quantity()));
     }
@@ -94,10 +102,19 @@ public class OrderService {
     private Mono<Void> cancel(long id, OrderEntity order, InventoryRejectedException rejection) {
         LOG.warn("Inventario rechazó la orden: orderId={}, codeProduct={}, reason={}",
                 id, order.codeProduct(), rejection.reason());
-        return repository.save(order.cancel(rejection.reason()))
+        return saveWithEvent(order.cancel(rejection.reason()))
                 .doOnNext(canceled -> LOG.info("Orden cancelada: orderId={}, codeProduct={}, reason={}",
                         id, canceled.codeProduct(), rejection.reason()))
                 .then(Mono.error(new OrderRejectedException(id, order.codeProduct(), rejection.reason())));
+    }
+
+    /**
+     * The new state and its event are committed together or not at all: never an event for a change that was
+     * not saved (e.g. a version conflict rolls both back), never a saved change without its event.
+     */
+    private Mono<OrderEntity> saveWithEvent(OrderEntity changed) {
+        return transactions.transactional(repository.save(changed)
+                .flatMap(saved -> outbox.append(saved).thenReturn(saved)));
     }
 
     private Mono<OrderEntity> load(long id) {
