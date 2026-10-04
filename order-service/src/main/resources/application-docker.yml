@@ -1,0 +1,26 @@
+# Only what differs inside Compose: service hostnames on the network and ECS JSON logs.
+spring:
+  liquibase:
+    url: jdbc:postgresql://${DB_HOST:postgresql}:${DB_PORT:5432}/${DB_NAME:orderdb}
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:postgresql}:${DB_PORT:5432}/${DB_NAME:orderdb}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:19092}
+
+inventory:
+  client:
+    base-url: ${INVENTORY_BASE_URL:http://service-inventory:8080/services-inventory}
+
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        version: @project.version@
+        environment: docker
+    json:
+      # ECS names for the Micrometer MDC keys so Kibana/Loki correlate logs with Jaeger/Tempo traces.
+      rename:
+        traceId: trace.id
+        spanId: span.id

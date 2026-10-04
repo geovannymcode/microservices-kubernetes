@@ -149,7 +149,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                          ServerWebExchange exchange) {
         var detail = ProblemDetail.forStatusAndDetail(status, message);
         detail.setTitle(title);
-        detail.setType(URI.create("https://codearti.com/problems/" + slug));
+        detail.setType(URI.create("https://geovannycode.com/problems/" + slug));
         detail.setInstance(URI.create(exchange.getRequest().getPath().value()));
         detail.setProperty("timestamp", Instant.now().toString());
         return detail;

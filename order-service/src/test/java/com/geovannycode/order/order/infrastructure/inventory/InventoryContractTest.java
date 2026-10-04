@@ -59,7 +59,7 @@ final class InventoryContractTest {
         String negativeStock = "{\"idProduct\":\"AC-1550\",\"nameProduct\":\"Lentes\",\"price\":123.50,\"stock\":-1}";
         assertThat(validateDecreaseResponse(200, "application/json", negativeStock).hasErrors()).isTrue();
 
-        String withoutDetail = "{\"type\":\"https://codearti.com/problems/insufficient-stock\",\"title\":\"x\",\"status\":409,"
+        String withoutDetail = "{\"type\":\"https://geovannycode.com/problems/insufficient-stock\",\"title\":\"x\",\"status\":409,"
                 + "\"instance\":\"/services-inventory/inventories/AC-1550\",\"timestamp\":\"2026-10-04T15:00:00Z\"}";
         assertThat(validateDecreaseResponse(409, "application/problem+json", withoutDetail).hasErrors()).isTrue();
 

@@ -55,6 +55,22 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
         <dependency>
+            <!-- Micrometer Tracing over the OpenTelemetry SDK with OTLP export (Boot 4 starter, no Java agent). -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <!-- Lets Boot's R2dbcObservationAutoConfiguration wrap the ConnectionFactory: one span per SQL statement. -->
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-proxy</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>r2dbc-postgresql</artifactId>
             <scope>runtime</scope>
@@ -113,6 +129,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Turns metric and trace export off in tests unless @AutoConfigureMetrics/@AutoConfigureTracing. -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -183,6 +205,26 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>build-info</id>
+                        <goals><goal>build-info</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <configuration>
+                    <!-- The course workspace may not be a Git checkout; /actuator/info then omits the git section. -->
+                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                    <verbose>false</verbose>
+                    <excludeProperties>
+                        <excludeProperty>git.build.host</excludeProperty>
+                        <excludeProperty>git.build.user.*</excludeProperty>
+                        <excludeProperty>git.commit.user.*</excludeProperty>
+                    </excludeProperties>
+                </configuration>
             </plugin>
             <plugin>
                 <!-- One report for unit and integration tests: prepare-agent sets argLine for surefire and failsafe. -->

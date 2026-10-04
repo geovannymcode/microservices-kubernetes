@@ -1,0 +1,53 @@
+# grafana/otel-lgtm 0.35.0 default config (OTLP receiver settings) plus scrape jobs for the course services.
+# Mounted over /otel-lgtm/prometheus.yaml by docker-compose (profile observability).
+global:
+  scrape_native_histograms: true
+otlp:
+  keep_identifying_resource_attributes: true
+  # Recommended attributes to be promoted to labels.
+  promote_resource_attributes:
+    - service.instance.id
+    - service.name
+    - service.namespace
+    - service.version
+    - cloud.availability_zone
+    - cloud.region
+    - container.name
+    - deployment.environment # backward compatibility
+    - deployment.environment.name
+    - k8s.cluster.name
+    - k8s.container.name
+    - k8s.cronjob.name
+    - k8s.daemonset.name
+    - k8s.deployment.name
+    - k8s.job.name
+    - k8s.namespace.name
+    - k8s.node.name
+    - k8s.pod.name
+    - k8s.replicaset.name
+    - k8s.statefulset.name
+    - host.name
+    - postgresql.database.name
+    - postgresql.schema.name
+    - postgresql.table.name
+    - postgresql.index.name
+    - database # used by otelcol/receiver/mongodb
+    - kafka.cluster.alias
+storage:
+  tsdb:
+    # A 10min time window is enough because it can easily absorb retries and network delays.
+    out_of_order_time_window: 10m
+# Same model as Kubernetes: Prometheus pulls /actuator/prometheus. 5s so the dashboard shows the short
+# HALF_OPEN window of the circuit breaker.
+scrape_configs:
+  - job_name: service-order
+    scrape_interval: 5s
+    metrics_path: /services-order/actuator/prometheus
+    static_configs:
+      # Order runs on the host (spring-boot:run); host.docker.internal reaches it from the container.
+      - targets: ["host.docker.internal:8081"]
+  - job_name: service-inventory
+    scrape_interval: 5s
+    metrics_path: /services-inventory/actuator/prometheus
+    static_configs:
+      - targets: ["service-inventory:8080"]

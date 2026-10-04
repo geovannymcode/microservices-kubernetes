@@ -106,7 +106,7 @@ Postman: carpeta `Order Service / local` con el environment `postman/order-local
 - **Confirmaciones simultáneas:** si dos confirman a la vez, la que pierde la carrera de `@Version` relee y vuelve a aplicar la tabla (máximo 2 relecturas). Como la `Idempotency-Key` es `order-<id>`, Inventory descuenta una sola vez y ambas responden 200.
 - **`POST /orders`:** 201 con `Location`, siempre en `pending`, sin llamar a Inventory. El código de producto se guarda en mayúsculas (`ac-1550` → `AC-1550`), que es lo que acepta Inventory.
 - **`GET /orders`:** acepta `?status=` y responde en JSON, NDJSON o SSE (`event: order`, `id` = id de la orden), según el `Accept`.
-- **Errores:** `ProblemDetail` con `type` `https://codearti.com/problems/<slug>`, `title`, `status`, `detail`, `instance`, `timestamp` y `errors[]` en validación; el mismo formato que Inventory. El JSON también es estricto: `quantity: 1.9` o `"2"` → 400.
+- **Errores:** `ProblemDetail` con `type` `https://geovannycode.com/problems/<slug>`, `title`, `status`, `detail`, `instance`, `timestamp` y `errors[]` en validación; el mismo formato que Inventory. El JSON también es estricto: `quantity: 1.9` o `"2"` → 400.
 - **Swagger UI:** `/services-order/swagger-ui.html` muestra el contrato estático (`/services-order/openapi/services-order.yaml`).
 - **CORS:** solo en el perfil `local`, para los viewers HTML, igual que en Inventory.
 
@@ -187,6 +187,103 @@ docker exec order-postgres psql -U order -d orderdb -c \
 
 **Mejoras opcionales (no incluidas):** Schema Registry con Avro o JSON Schema para validar el contrato en el broker, y CDC con Debezium en lugar de polling.
 
+## Observabilidad
+
+Mismas decisiones que Inventory (fase 7). Aquí se documenta lo propio de Order.
+
+### Actuator y salud
+
+Actuator va en el mismo puerto (8081), bajo `/services-order/actuator`, y expone solo `health`, `info`, `prometheus`, `metrics`, `circuitbreakers`, `circuitbreakerevents`, `retries` y `ratelimiters`. `env`, `beans` y `configprops` responden 404.
+
+| Grupo | Incluye | Por qué |
+|---|---|---|
+| `liveness` | `livenessState` | Reiniciar no arregla ni la BD ni Inventory. |
+| `readiness` | `readinessState`, `r2dbc` | Sin BD, Order no puede atender. **No** incluye el circuit breaker ni Kafka: con el circuito abierto, Order responde 503 rápido y sigue registrando órdenes; con Kafka caído, los eventos esperan en la outbox. |
+| `resilience` | `circuitBreakers`, con detalles siempre | Muestra, solo como información, el estado del circuito (`/actuator/health/resilience` → `details.inventory.details.state`) sin hacer públicos los detalles del resto de componentes. |
+
+En `/actuator/health` el componente `circuitBreakers` aparece como `UP` con el circuito cerrado y como `UNKNOWN` con el circuito abierto o semiabierto (`allow-health-indicator-to-fail: false`). Nunca aparece como `DOWN`.
+
+`/actuator/info` incluye `build` (artefacto, versión, fecha) y `git` (rama y commit).
+
+### Métricas (`/actuator/prometheus`)
+
+- **HTTP:** `http_server_requests_seconds` con histograma y buckets SLO (100 ms, 300 ms, 1 s), y `http_client_requests_seconds` con histograma para las llamadas a Inventory. Todas las series llevan `application="service-order"`.
+- **Resilience4j** (instancia `inventory`, vía `resilience4j-micrometer`):
+  - `resilience4j_circuitbreaker_state`, `..._calls_seconds`, `..._failure_rate` y `..._not_permitted_calls_total`;
+  - `resilience4j_retry_calls_total`;
+  - `resilience4j_ratelimiter_available_permissions`;
+  - `resilience4j_timelimiter_calls_total`.
+- **Negocio:**
+  - `orders_registered_total`: órdenes registradas. Se llama `orders.registered` y no `orders.created`, porque el cliente de Prometheus elimina el sufijo `_created`, reservado en OpenMetrics, y la serie saldría como `orders_total`.
+  - `orders_confirmed_total{result="completed|canceled|unavailable"}`: solo cuenta cambios de estado y respuestas 503. Reconfirmar una orden completada no suma. Las tres series existen desde el arranque.
+  - `outbox_pending`: eventos sin publicar. Lo actualiza el relay en cada ciclo; si crece, Kafka está caído o el relay no da abasto. Se registra en `OutboxRelay` y no en `OrderService`, porque es quien conoce la tabla.
+
+Cada transición del circuito se registra en INFO, por ejemplo `Circuito hacia Inventory: CLOSED -> OPEN`.
+
+### Trazas
+
+`spring-boot-starter-opentelemetry` exporta por OTLP a `${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces`, con un muestreo de `${TRACING_SAMPLING:1.0}`. `spring.reactor.context-propagation=auto` mantiene `traceId` y `spanId` en el MDC entre saltos de hilo.
+
+Una confirmación produce **una sola traza**:
+
+```
+http put /orders/{orderId}                         service-order     SERVER
+├─ query  SELECT order_shop                        service-order     (r2dbc-proxy)
+├─ http put                                        service-order     CLIENT  (uno por intento)
+│  └─ http put /inventories/{productId}            service-inventory SERVER
+│     ├─ query  INSERT stock_movements             service-inventory
+│     ├─ query  UPDATE products                    service-inventory
+│     └─ query  SELECT products                    service-inventory
+├─ query  UPDATE order_shop                        service-order
+├─ query  INSERT outbox_event                      service-order
+└─ outbox relay orders.events.v1                   service-order     INTERNAL
+   └─ orders.events.v1 send                        service-order     PRODUCER
+```
+
+- **Hacia Inventory:** el cliente HTTP declarativo se construye sobre el `WebClient.Builder` de Boot, así que lleva la observación y envía `traceparent`. Cada reintento es un span `CLIENT` distinto dentro de la misma traza, porque `Retry` vuelve a suscribir la llamada.
+- **Hacia Kafka:** `spring.kafka.template.observation-enabled=true` crea el span `PRODUCER` e inyecta `traceparent` en los headers del mensaje. Como el relay publica en otro momento y en otro hilo, la outbox guarda el `traceparent` de la petición (columna `trace_parent`, changeSet 004). El relay publica dentro de un span hijo de esa traza, así que el evento de Kafka continúa la traza de la confirmación, y Notification podrá continuarla también.
+
+### Logs
+
+Los perfiles `docker` y `k8s` escriben JSON ECS con `trace.id` y `span.id`, igual que Inventory. El mismo `trace.id` aparece en los logs de los dos servicios para una petición.
+
+### Stack local y dashboard
+
+El profile `observability` de Compose levanta `grafana/otel-lgtm`. El `prometheus.yaml` que se monta (`observability/prometheus/prometheus.yaml`) es el de la imagen más dos scrapes cada 5 s:
+
+- Order en el host: `host.docker.internal:8081`.
+- Inventory en la red de Compose.
+
+Grafana provisiona [`observability/dashboards/order-resilience.json`](../observability/dashboards/order-resilience.json), en la carpeta geovannycode, con estos paneles:
+
+- estado del circuito como línea de tiempo;
+- tasa de fallos con el umbral del 50 %;
+- llamadas por resultado, incluidas las rechazadas;
+- reintentos;
+- latencia p95 hacia Inventory;
+- órdenes por resultado y totales;
+- eventos pendientes en la outbox.
+
+```sh
+docker compose --profile observability up -d otel-lgtm
+docker compose up -d postgresql kafka service-inventory      # Inventory en INVENTORY_PORT (8080 por defecto)
+cd order-service && set -a; . ./.env; set +a
+INVENTORY_CB_WAIT=15s ./mvnw spring-boot:run -Dspring-boot.run.profiles=docker   # logs JSON; DB_HOST viene de .env
+```
+
+**Demo del circuito**, con el dashboard abierto en <http://localhost:3000> (Dashboards → geovannycode → *Order — Resiliencia hacia Inventory*):
+
+1. `docker stop service-inventory` y confirma dos o tres órdenes: responden 503 con `Retry-After` y el circuito pasa a **OPEN**. `/actuator/health/readiness` sigue `UP`.
+2. Pasados 15 s (`INVENTORY_CB_WAIT`) el circuito pasa solo a **HALF_OPEN**.
+3. `docker start service-inventory` y, cuando esté healthy, confirma una orden pendiente: 200 y el circuito vuelve a **CLOSED**.
+
+Para ver la traza, busca en Explore → Tempo el trace ID que envíes en `traceparent`:
+
+```sh
+curl -X PUT -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e47a1-00f067aa0ba902b7-01' \
+  http://localhost:8081/services-order/orders/<id>
+```
+
 ## Tests
 
 | Nivel | Clases | Qué demuestra |
@@ -194,10 +291,11 @@ docker exec order-postgres psql -U order -d orderdb -c \
 | Unitario (Surefire, `*Test`) | `OrderServiceTest` | Un test por fila de la tabla de `confirm` (inexistente, completed sin llamar al gateway, canceled, éxito, rechazo con `cancelReason`, Inventory caído sin guardar nada, conflicto de versión con relectura y su límite), más `create`, `findById` y `findAll`. |
 | Slice web | `OrdersApiTest` (`@WebFluxTest` + `@MockitoBean`) | Status, `Location`, `Retry-After`, `Content-Type` y cuerpo de cada endpoint; `ProblemDetail` de 400, 404, 409, 503 y 500; NDJSON y SSE. |
 | Contrato del consumidor | `InventoryContractTest` | Las respuestas de WireMock (200, 404, 409 y 422, en `InventoryStubs`) y la petición que envía el gateway cumplen `contracts/services-inventory.yaml`. Si Inventory cambia su contrato, el build falla. |
+| Observabilidad | `ObservabilityIT` (exportador de spans en memoria) | `/actuator/prometheus` contiene las métricas de Resilience4j de `inventory` y las de negocio tras confirmaciones completed, canceled y 503. Una traza con `traceparent` entrante llega a Inventory con tres spans `CLIENT` (dos 500 y un 200) y spans de R2DBC. El mensaje de Kafka lleva el `traceparent` de la confirmación. Con el circuito OPEN, readiness y health siguen `UP` y `/actuator/health/resilience` muestra `OPEN`. Están expuestos `retries` y `ratelimiters`, e `info` muestra `build`. |
 | Arquitectura | `ArchitectureTest` (ArchUnit) | `api` no usa `infrastructure`, `domain` no depende de Spring, solo `infrastructure.inventory` usa WebClient, HTTP service clients y Resilience4j, y no hay ciclos. |
 | Outbox (Failsafe) | `OutboxIT` (PostgreSQL y Kafka en Testcontainers) | Una confirmación produce exactamente un mensaje con key y headers correctos y deja `published_at`; un rechazo produce `OrderCanceled` con `cancelReason`; con Kafka pausado la confirmación responde 200, readiness sigue `UP` y el evento se publica al volver; si falla el guardado de la orden o el `INSERT` en la outbox, no queda ni evento ni cambio de estado; dos relays en paralelo no publican el mismo evento dos veces. |
 | Integración (Failsafe, `*IT`) | `OrderApiIT`, `InventoryGatewayIT`, `OrderRepositoryIT` | HTTP real contra PostgreSQL 17.11 (Testcontainers 2), con WireMock como Inventory: flujo feliz, rechazo con orden `canceled` persistida, Inventory caído con 503 y orden `pending`, 20 PUT concurrentes sobre la misma orden (repetido 5 veces) y resiliencia del gateway. |
-| Sistema (`-Psystem-tests`) | `OrderInventorySystemIT` | Order contra la imagen real `codearti/service-inventory` y MySQL: stock 10, 15 órdenes de 1 unidad confirmadas dos veces en paralelo. Resultado: 10 `completed`, 5 `canceled` por `INSUFFICIENT_STOCK` y stock final 0. |
+| Sistema (`-Psystem-tests`) | `OrderInventorySystemIT` | Order contra la imagen real `geovannycode/service-inventory` y MySQL: stock 10, 15 órdenes de 1 unidad confirmadas dos veces en paralelo. Resultado: 10 `completed`, 5 `canceled` por `INSUFFICIENT_STOCK` y stock final 0. |
 
 Todos los contextos completos levantan PostgreSQL y Kafka (`TestcontainersConfiguration`, con los mismos digests que Compose), porque el relay corre en cada uno. Cada test es independiente: en `@BeforeEach` se vacía la tabla `order_shop`, se reinicia WireMock y se resetea el circuit breaker. No hay `Thread.sleep`: la espera de los tests asíncronos va con `StepVerifier` y timeouts.
 
@@ -213,7 +311,7 @@ Liquibase corre el changelog real con el contexto `test` (`src/test/resources/ap
 **El test de sistema necesita la imagen de Inventory.** Si no existe, falla con el comando para construirla:
 
 ```sh
-docker build --build-context contracts=contracts -t codearti/service-inventory:0.0.1-SNAPSHOT inventory-service
+docker build --build-context contracts=contracts -t geovannycode/service-inventory:0.0.1-SNAPSHOT inventory-service
 ```
 
 No se construye desde el test con `ImageFromDockerfile` porque el Dockerfile necesita BuildKit (contexto con nombre para el contrato y `--mount=type=cache`), y Testcontainers no lo soporta. Para usar otra etiqueta: `-Dinventory.image=...`.

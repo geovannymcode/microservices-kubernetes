@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 final class OrderInventorySystemIT {
 
     private static final String INVENTORY_IMAGE =
-            System.getProperty("inventory.image", "codearti/service-inventory:0.0.1-SNAPSHOT");
+            System.getProperty("inventory.image", "geovannycode/service-inventory:0.0.1-SNAPSHOT");
     private static final String PRODUCT = "SYS-0001";
     private static final int STOCK = 10;
     private static final int ORDERS = 15;

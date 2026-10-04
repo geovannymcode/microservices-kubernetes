@@ -186,7 +186,7 @@ final class OrdersApiTest {
     private static WebTestClient.BodyContentSpec problem(WebTestClient.ResponseSpec response, int status, String slug) {
         return response.expectStatus().isEqualTo(status)
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody().jsonPath("$.type").isEqualTo("https://codearti.com/problems/" + slug)
+                .expectBody().jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/" + slug)
                 .jsonPath("$.status").isEqualTo(status).jsonPath("$.title").exists().jsonPath("$.detail").exists()
                 .jsonPath("$.timestamp").exists();
     }

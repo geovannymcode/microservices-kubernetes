@@ -3,10 +3,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
-# Namespace codearti is created by the platform (GitOps/Terraform), not by this overlay.
+# Namespace geovannycode is created by the platform (GitOps/Terraform), not by this overlay.
 # TODO(eks): image from ECR, e.g.
 # images:
-#   - name: codearti/service-inventory
+#   - name: geovannycode/service-inventory
 #     newName: <account>.dkr.ecr.<region>.amazonaws.com/service-inventory
 #     newTag: <git-sha>
 # TODO(eks): DB_HOST -> RDS MySQL endpoint (configMapGenerator merge); no k8s/mysql on EKS.
@@ -20,7 +20,7 @@ resources:
 # kubelet probes and Prometheus use 8081. Spring Boot reads these env vars directly (relaxed binding).
 configMapGenerator:
   - name: service-inventory-config
-    namespace: codearti
+    namespace: geovannycode
     behavior: merge
     literals:
       - MANAGEMENT_SERVER_PORT=8081

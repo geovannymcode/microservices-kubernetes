@@ -2,8 +2,8 @@
 #   make k8s-up                          # minikube (default)
 #   make k8s-up CLUSTER=docker-desktop   # Kubernetes built into Docker Desktop
 CLUSTER    ?= minikube
-NAMESPACE  := codearti
-IMAGE      := codearti/service-inventory:0.0.1-SNAPSHOT
+NAMESPACE  := geovannycode
+IMAGE      := geovannycode/service-inventory:0.0.1-SNAPSHOT
 KUBECTL    := kubectl --context $(CLUSTER)
 MYSQL_ENV  := k8s/mysql/.env
 APP_ENV    := k8s/overlays/minikube/.env
@@ -71,7 +71,7 @@ else
 	@echo "http://localhost:$$($(KUBECTL) get service service-inventory -n $(NAMESPACE) -o jsonpath='{.spec.ports[0].nodePort}')"
 endif
 
-# In-cluster load against GET /inventories; watch it with: kubectl get hpa -n codearti -w
+# In-cluster load against GET /inventories; watch it with: kubectl get hpa -n geovannycode -w
 k8s-load:
 	$(KUBECTL) run k6-load -n $(NAMESPACE) --rm -i --restart=Never --image=grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34 -- \
 		run --vus 50 --duration 3m - < k8s/load/inventories.js

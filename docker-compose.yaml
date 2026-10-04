@@ -95,7 +95,7 @@ services:
   # Liquibase CLI over the app's changelog, without installing it: docker compose run --rm liquibase status
   liquibase:
     build: ./order-service/liquibase-env
-    image: codearti/liquibase-postgresql:5.0.3
+    image: geovannycode/liquibase-postgresql:5.0.3
     profiles: ["tools"]
     depends_on:
       postgresql:
@@ -121,7 +121,7 @@ services:
       context: ./inventory-service
       additional_contexts:
         contracts: ./contracts
-    image: codearti/service-inventory:${INVENTORY_IMAGE_TAG:-0.0.1-SNAPSHOT}
+    image: geovannycode/service-inventory:${INVENTORY_IMAGE_TAG:-0.0.1-SNAPSHOT}
     container_name: service-inventory
     depends_on:
       mysql:
@@ -160,6 +160,13 @@ services:
       - "127.0.0.1:3000:3000"
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
+    # Prometheus scrapes Order (on the host) and Inventory every 5s; Grafana provisions the course dashboards.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./observability/prometheus/prometheus.yaml:/otel-lgtm/prometheus.yaml:ro
+      - ./observability/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/geovannycode.yaml:ro
+      - ./observability/dashboards:/otel-lgtm/geovannycode-dashboards:ro
     networks:
       - inventory
 

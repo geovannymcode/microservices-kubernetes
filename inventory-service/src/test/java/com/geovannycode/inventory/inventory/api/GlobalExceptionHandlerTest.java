@@ -22,7 +22,7 @@ final class GlobalExceptionHandlerTest {
                     var detail = (ProblemDetail) response.getBody();
                     assertThat(detail).isNotNull();
                     assertThat(detail.getDetail()).doesNotContain("secret-password").contains("error interno");
-                    assertThat(detail.getType().toString()).isEqualTo("https://codearti.com/problems/internal-error");
+                    assertThat(detail.getType().toString()).isEqualTo("https://geovannycode.com/problems/internal-error");
                     assertThat(detail.getProperties()).containsKey("timestamp").doesNotContainKeys("trace", "exception");
                 }).expectComplete().verify(Duration.ofSeconds(2));
     }

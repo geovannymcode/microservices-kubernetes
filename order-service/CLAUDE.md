@@ -1,7 +1,7 @@
 # CLAUDE.md — service-order
 
 ## Proyecto
-Microservicio **Order Service** del curso "Arquitectura de Microservicios con Spring Boot y Kubernetes" (Codearti). Registra órdenes y, al confirmarlas, descuenta stock en **Inventory Service** por HTTP síncrono protegido con Resilience4j. Publica eventos en Kafka para Notification Service.
+Microservicio **Order Service** del curso "Arquitectura de Microservicios con Spring Boot y Kubernetes". Registra órdenes y, al confirmarlas, descuenta stock en **Inventory Service** por HTTP síncrono protegido con Resilience4j. Publica eventos en Kafka para Notification Service.
 
 **Order se construye desde cero** a partir de un esqueleto de Spring Initializr, igual que Inventory. No hay código previo que migrar.
 
@@ -20,7 +20,7 @@ Inventory ya está implementado en este mismo repo. Úsalo como referencia de es
 - Tests: JUnit 5, `StepVerifier`, `WebTestClient`, Testcontainers 2.x con `@ServiceConnection`, WireMock para simular Inventory
 
 ## Convenciones
-- Paquete raíz: el del esqueleto (por ejemplo `com.codearti.serviceorder`):
+- Paquete raíz: el del esqueleto (por ejemplo `com.geovannycode.order`):
   ```
   order/
     api/            -> OrderApiDelegateImpl, GlobalExceptionHandler, OrderMapper

@@ -14,6 +14,7 @@ import com.geovannycode.order.order.infrastructure.inventory.InventoryGateway;
 import com.geovannycode.order.order.infrastructure.messaging.OutboxWriter;
 import com.geovannycode.order.order.infrastructure.persistence.OrderEntity;
 import com.geovannycode.order.order.infrastructure.persistence.OrderRepository;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,18 +50,24 @@ final class OrderServiceTest {
     @Mock private OutboxWriter outbox;
     @Mock private TransactionalOperator transactions;
     private OrderService service;
+    private SimpleMeterRegistry meters;
 
     @BeforeEach
     void createService() {
         // Pass-through transaction; OutboxIT covers the real commit and rollback against PostgreSQL.
         lenient().when(transactions.transactional(any(Mono.class))).thenAnswer(call -> call.getArgument(0));
         lenient().when(outbox.append(any(OrderEntity.class))).thenReturn(Mono.empty());
-        service = new OrderService(repository, inventory, new OrderMapperImpl(), outbox, transactions);
+        meters = new SimpleMeterRegistry();
+        service = new OrderService(repository, inventory, new OrderMapperImpl(), outbox, transactions, meters);
     }
 
     private static OrderEntity order(OrderStatus status) {
         return new OrderEntity(ID, "AC-1550", 2, status,
                 status == OrderStatus.CANCELED ? CancelReason.INSUFFICIENT_STOCK : null, NOW, NOW, 0L);
+    }
+
+    private double confirmed(String result) {
+        return meters.get("orders.confirmed").tag("result", result).counter().count();
     }
 
     private void saveReturnsArgument() {
@@ -77,6 +84,7 @@ final class OrderServiceTest {
                     assertThat(response.getQuantity()).isEqualTo(3);
                 }).verifyComplete();
         verifyNoInteractions(inventory);
+        assertThat(meters.get("orders.registered").counter().count()).isEqualTo(1);
     }
 
     @Test
@@ -115,6 +123,8 @@ final class OrderServiceTest {
                 .verifyComplete();
         verifyNoInteractions(inventory, outbox);
         verify(repository, never()).save(any());
+        // Re-confirming a completed order is not a new confirmation.
+        assertThat(confirmed("completed")).isZero();
     }
 
     @Test
@@ -138,6 +148,7 @@ final class OrderServiceTest {
         assertThat(saved.getValue().status()).isEqualTo(OrderStatus.COMPLETED);
         assertThat(saved.getValue().cancelReason()).isNull();
         verify(outbox).append(saved.getValue());
+        assertThat(confirmed("completed")).isEqualTo(1);
     }
 
     @Test
@@ -157,6 +168,8 @@ final class OrderServiceTest {
         assertThat(saved.getValue().status()).isEqualTo(OrderStatus.CANCELED);
         assertThat(saved.getValue().cancelReason()).isEqualTo(CancelReason.PRODUCT_NOT_FOUND);
         verify(outbox).append(saved.getValue());
+        assertThat(confirmed("canceled")).isEqualTo(1);
+        assertThat(confirmed("completed")).isZero();
     }
 
     @Test
@@ -167,6 +180,7 @@ final class OrderServiceTest {
         StepVerifier.create(service.confirm(ID)).expectError(InventoryUnavailableException.class).verify();
         verify(repository, never()).save(any());
         verifyNoInteractions(outbox);
+        assertThat(confirmed("unavailable")).isEqualTo(1);
     }
 
     @Test

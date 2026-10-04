@@ -131,7 +131,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
               example:
-                type: https://codearti.com/problems/order-rejected
+                type: https://geovannycode.com/problems/order-rejected
                 title: Orden rechazada
                 status: 409
                 detail: Stock insuficiente para el producto AC-1550
@@ -162,7 +162,7 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
           example:
-            type: https://codearti.com/problems/validation-error
+            type: https://geovannycode.com/problems/validation-error
             title: Solicitud inválida
             status: 400
             detail: La solicitud tiene campos inválidos
@@ -178,7 +178,7 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
           example:
-            type: https://codearti.com/problems/order-not-found
+            type: https://geovannycode.com/problems/order-not-found
             title: Orden no encontrada
             status: 404
             detail: No existe la orden 999999

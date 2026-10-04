@@ -1,18 +1,16 @@
 package com.geovannycode.order.order.infrastructure.messaging;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
+import com.geovannycode.order.KafkaTopicReader;
 import com.geovannycode.order.TestcontainersConfiguration;
 import com.geovannycode.order.generated.dto.OrderResponse;
 import com.geovannycode.order.order.domain.OrderStatus;
@@ -21,11 +19,8 @@ import com.geovannycode.order.order.infrastructure.persistence.OrderEntity;
 import com.geovannycode.order.order.infrastructure.persistence.OrderRepository;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
-import org.apache.kafka.clients.consumer.ConsumerConfig;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -89,6 +84,7 @@ final class OutboxIT {
     @Autowired private OutboxProperties outbox;
     @Autowired private CircuitBreakerRegistry circuitBreakers;
     @Autowired private JsonMapper json;
+    @Autowired private OutboxTracing tracing;
     @Value("${local.server.port}") private int port;
 
     private WebTestClient client() {
@@ -206,7 +202,7 @@ final class OutboxIT {
                 .expectComplete().verify(TIMEOUT);
 
         // A second replica next to this context's own relay (which keeps polling too): three relays competing.
-        var otherReplica = new OutboxRelay(database, transactions, kafkaTemplate, outbox);
+        var otherReplica = new OutboxRelay(database, transactions, kafkaTemplate, outbox, tracing, new SimpleMeterRegistry());
         StepVerifier.create(Flux.merge(relay.publishPending(), otherReplica.publishPending(),
                         relay.publishPending(), otherReplica.publishPending()).then())
                 .expectComplete().verify(TIMEOUT);
@@ -270,28 +266,11 @@ final class OutboxIT {
         return records().stream().filter(record -> key.equals(record.key())).toList();
     }
 
-    /** Every record currently in the topic, read from the beginning up to the end offsets taken at the start. */
     private List<ConsumerRecord<String, String>> records() {
-        var settings = new Properties();
-        settings.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
-        settings.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-        try (var consumer = new KafkaConsumer<>(settings, new StringDeserializer(), new StringDeserializer())) {
-            var partitions = consumer.partitionsFor(outbox.topic()).stream()
-                    .map(info -> new TopicPartition(info.topic(), info.partition())).toList();
-            consumer.assign(partitions);
-            consumer.seekToBeginning(partitions);
-            var end = consumer.endOffsets(partitions);
-            var found = new ArrayList<ConsumerRecord<String, String>>();
-            var deadline = Instant.now().plus(TIMEOUT);
-            while (partitions.stream().anyMatch(partition -> consumer.position(partition) < end.get(partition))) {
-                assertThat(Instant.now()).as("lectura del topic").isBefore(deadline);
-                consumer.poll(Duration.ofMillis(200)).forEach(found::add);
-            }
-            return found;
-        }
+        return KafkaTopicReader.records(kafka.getBootstrapServers(), outbox.topic());
     }
 
     private static String header(ConsumerRecord<String, String> record, String name) {
-        return new String(Objects.requireNonNull(record.headers().lastHeader(name)).value(), StandardCharsets.UTF_8);
+        return KafkaTopicReader.header(record, name);
     }
 }

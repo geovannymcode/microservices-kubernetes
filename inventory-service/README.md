@@ -245,8 +245,8 @@ docker compose ps
 Imagen sin Compose:
 
 ```sh
-docker build --build-context contracts=contracts -t codearti/service-inventory:0.0.1-SNAPSHOT inventory-service
-docker image ls codearti/service-inventory
+docker build --build-context contracts=contracts -t geovannycode/service-inventory:0.0.1-SNAPSHOT inventory-service
+docker image ls geovannycode/service-inventory
 docker top service-inventory -eo uid,pid,args        # UID 10001; la imagen no contiene el binario id
 ```
 
@@ -254,7 +254,7 @@ Medir el efecto del AOT cache (con `-XX:AOTMode=off` la JVM lo ignora):
 
 ```sh
 docker logs service-inventory 2>&1 | grep 'Started InventoryServiceApplication'
-docker run --rm --entrypoint java codearti/service-inventory:0.0.1-SNAPSHOT \
+docker run --rm --entrypoint java geovannycode/service-inventory:0.0.1-SNAPSHOT \
   -XX:AOTCache=/app/app.aot -XX:AOTMode=on -Dspring.context.exit=onRefresh -Dspring.flyway.enabled=false -jar /app/app.jar
 ```
 
@@ -265,14 +265,14 @@ docker run --rm --entrypoint java codearti/service-inventory:0.0.1-SNAPSHOT \
 Con Trivy instalado (`brew install trivy`):
 
 ```sh
-trivy image --scanners vuln --severity HIGH,CRITICAL codearti/service-inventory:0.0.1-SNAPSHOT
+trivy image --scanners vuln --severity HIGH,CRITICAL geovannycode/service-inventory:0.0.1-SNAPSHOT
 ```
 
 Sin instalarlo, mediante su imagen oficial:
 
 ```sh
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/ \
-  aquasec/trivy:0.75.0 image --scanners vuln --severity HIGH,CRITICAL codearti/service-inventory:0.0.1-SNAPSHOT
+  aquasec/trivy:0.75.0 image --scanners vuln --severity HIGH,CRITICAL geovannycode/service-inventory:0.0.1-SNAPSHOT
 ```
 
 Resultado actual: 0 HIGH y 0 CRITICAL. Se corrigió Jackson 2.21.5 → 2.21.7 (transitivo de springdoc; `jackson-2-bom.version` en el `pom.xml`). Además se cambió `distroless/java-base` por `distroless/cc`, que no incluye las librerías de fontconfig con CVE sin parche.
@@ -293,7 +293,7 @@ Los manifiestos están en `../k8s` y usan Kustomize (`kubectl apply -k`):
 
 ```text
 k8s/
-  namespace/            namespace codearti, aplicado aparte: borrar la app no borra la BD
+  namespace/            namespace geovannycode, aplicado aparte: borrar la app no borra la BD
   base/                 ServiceAccount, ConfigMap (generado), Deployment, Service, HPA, PDB
   mysql/                StatefulSet mysql:8.4 + Service headless + PVC + Secret: solo dev (en EKS será RDS)
   overlays/minikube/    Secret de BD, NodePort 30080, imagePullPolicy Never, muestreo 1.0, sin exportador OTLP
@@ -321,7 +321,7 @@ k8s/
   - `app.kubernetes.io/{name,part-of,version,component}`.
   - En el pod, además, `app` y `version`, que son las que usan Istio y Kiali.
   - El selector usa solo `app.kubernetes.io/name`, porque es inmutable.
-- **Service:** ClusterIP con el puerto 80 nombrado `http` (Istio deduce el protocolo del nombre). Order lo llamará en `http://service-inventory.codearti.svc.cluster.local/services-inventory`. El overlay local lo cambia a NodePort.
+- **Service:** ClusterIP con el puerto 80 nombrado `http` (Istio deduce el protocolo del nombre). Order lo llamará en `http://service-inventory.geovannycode.svc.cluster.local/services-inventory`. El overlay local lo cambia a NodePort.
 - **PDB:**
   - En base, `maxUnavailable: 1`, que con una sola réplica no bloquea un drain.
   - El overlay `eks` lo endurece a `minAvailable: 1` y sube el HPA a min 2.
@@ -335,10 +335,10 @@ Desde la raíz del curso:
 make k8s-up                          # minikube: start, metrics-server, imagen en su Docker, MySQL, app y URL
 make k8s-up CLUSTER=docker-desktop   # Kubernetes de Docker Desktop (modo kubeadm: comparte las imágenes de Docker)
 make k8s-validate                    # kubectl apply -k --dry-run=server
-kubectl get pods -n codearti
+kubectl get pods -n geovannycode
 ```
 
-- En **minikube**, `make k8s-url` ejecuta `minikube service service-inventory -n codearti --url`. Con el driver Docker en macOS abre un túnel en `127.0.0.1:<puerto>` y se queda bloqueado: mantenlo abierto mientras usas Postman.
+- En **minikube**, `make k8s-url` ejecuta `minikube service service-inventory -n geovannycode --url`. Con el driver Docker en macOS abre un túnel en `127.0.0.1:<puerto>` y se queda bloqueado: mantenlo abierto mientras usas Postman.
 - En **Docker Desktop**, el NodePort fijo se publica en `http://localhost:30080`.
 - `make k8s-down` borra solo la app; MySQL y su PVC se conservan.
 - `make k8s-purge` borra el namespace entero, incluidos los datos.
@@ -380,10 +380,10 @@ Se acepta porque el servicio no puede atender ninguna operación sin MySQL, y sa
 
 
 ```sh
-kubectl scale statefulset mysql -n codearti --replicas=0
-kubectl get pods -n codearti -w          # service-inventory pasa a 0/1, RESTARTS sigue en 0
-kubectl get endpoints service-inventory -n codearti   # la IP aparece en notReadyAddresses
-kubectl scale statefulset mysql -n codearti --replicas=1
+kubectl scale statefulset mysql -n geovannycode --replicas=0
+kubectl get pods -n geovannycode -w          # service-inventory pasa a 0/1, RESTARTS sigue en 0
+kubectl get endpoints service-inventory -n geovannycode   # la IP aparece en notReadyAddresses
+kubectl scale statefulset mysql -n geovannycode --replicas=1
 ```
 
 Borrar el pod (`kubectl delete pod mysql-0`) suele no bastar para verlo, porque el StatefulSet lo recrea en unos 4 s, antes de que la readiness falle dos veces (2 × 5 s). Mientras el pod está NotReady, las peticiones a través del Service fallan (no hay endpoints listos); esa es justamente la señal para que Order abra su circuit breaker.
@@ -393,7 +393,7 @@ Borrar el pod (`kubectl delete pod mysql-0`) suele no bastar para verlo, porque 
 Requiere metrics-server: `minikube addons enable metrics-server` o, en Docker Desktop, `kubectl apply -k k8s/addons/metrics-server` (lo hace `make k8s-up`).
 
 ```sh
-kubectl get hpa -n codearti -w        # en una terminal
+kubectl get hpa -n geovannycode -w        # en una terminal
 make k8s-load                         # en otra: k6 dentro del clúster, 50 usuarios virtuales durante 3 min contra GET /inventories
 ```
 

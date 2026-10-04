@@ -12,6 +12,8 @@ import com.geovannycode.order.order.infrastructure.inventory.InventoryGateway;
 import com.geovannycode.order.order.infrastructure.messaging.OutboxWriter;
 import com.geovannycode.order.order.infrastructure.persistence.OrderEntity;
 import com.geovannycode.order.order.infrastructure.persistence.OrderRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,20 +42,36 @@ public class OrderService {
     private final OrderMapper mapper;
     private final OutboxWriter outbox;
     private final TransactionalOperator transactions;
+    private final Counter ordersCreated;
+    private final Counter confirmedCompleted;
+    private final Counter confirmedCanceled;
+    private final Counter confirmedUnavailable;
 
     public OrderService(OrderRepository repository, InventoryGateway inventory, OrderMapper mapper, OutboxWriter outbox,
-                        TransactionalOperator transactions) {
+                        TransactionalOperator transactions, MeterRegistry meterRegistry) {
         this.repository = repository;
         this.inventory = inventory;
         this.mapper = mapper;
         this.outbox = outbox;
         this.transactions = transactions;
+        // Not "orders.created": the Prometheus client strips the OpenMetrics-reserved "_created" suffix and the
+        // series would be exported as orders_total.
+        this.ordersCreated = Counter.builder("orders.registered").description("Orders registered through the API")
+                .register(meterRegistry);
+        // Registered eagerly so every result series exists (as 0) before the first confirmation. Only state
+        // changes count: confirming an already completed order again is not a new confirmation.
+        this.confirmedCompleted = confirmedCounter(meterRegistry, "completed");
+        this.confirmedCanceled = confirmedCounter(meterRegistry, "canceled");
+        this.confirmedUnavailable = confirmedCounter(meterRegistry, "unavailable");
     }
 
     public Mono<OrderResponse> create(OrderRequest request) {
         return repository.save(mapper.toEntity(request))
-                .doOnNext(order -> LOG.info("Orden registrada: orderId={}, codeProduct={}, quantity={}",
-                        order.id(), order.codeProduct(), order.quantity()))
+                .doOnNext(order -> {
+                    ordersCreated.increment();
+                    LOG.info("Orden registrada: orderId={}, codeProduct={}, quantity={}",
+                            order.id(), order.codeProduct(), order.quantity());
+                })
                 .map(mapper::toResponse);
     }
 
@@ -91,20 +109,28 @@ public class OrderService {
     private Mono<OrderEntity> reserveAndComplete(long id, OrderEntity order) {
         return inventory.reserveStock(id, order.codeProduct(), order.quantity())
                 .onErrorResume(InventoryRejectedException.class, rejection -> cancel(id, order, rejection))
-                .doOnError(InventoryUnavailableException.class, unavailable -> LOG.error(
-                        "Inventario no disponible, la orden sigue pendiente: orderId={}, codeProduct={}",
-                        id, order.codeProduct(), unavailable))
+                .doOnError(InventoryUnavailableException.class, unavailable -> {
+                    confirmedUnavailable.increment();
+                    LOG.error("Inventario no disponible, la orden sigue pendiente: orderId={}, codeProduct={}",
+                            id, order.codeProduct(), unavailable);
+                })
                 .then(Mono.defer(() -> saveWithEvent(order.complete())))
-                .doOnNext(completed -> LOG.info("Orden completada: orderId={}, codeProduct={}, quantity={}",
-                        id, completed.codeProduct(), completed.quantity()));
+                .doOnNext(completed -> {
+                    confirmedCompleted.increment();
+                    LOG.info("Orden completada: orderId={}, codeProduct={}, quantity={}",
+                            id, completed.codeProduct(), completed.quantity());
+                });
     }
 
     private Mono<Void> cancel(long id, OrderEntity order, InventoryRejectedException rejection) {
         LOG.warn("Inventario rechazó la orden: orderId={}, codeProduct={}, reason={}",
                 id, order.codeProduct(), rejection.reason());
         return saveWithEvent(order.cancel(rejection.reason()))
-                .doOnNext(canceled -> LOG.info("Orden cancelada: orderId={}, codeProduct={}, reason={}",
-                        id, canceled.codeProduct(), rejection.reason()))
+                .doOnNext(canceled -> {
+                    confirmedCanceled.increment();
+                    LOG.info("Orden cancelada: orderId={}, codeProduct={}, reason={}",
+                            id, canceled.codeProduct(), rejection.reason());
+                })
                 .then(Mono.error(new OrderRejectedException(id, order.codeProduct(), rejection.reason())));
     }
 
@@ -115,6 +141,11 @@ public class OrderService {
     private Mono<OrderEntity> saveWithEvent(OrderEntity changed) {
         return transactions.transactional(repository.save(changed)
                 .flatMap(saved -> outbox.append(saved).thenReturn(saved)));
+    }
+
+    private static Counter confirmedCounter(MeterRegistry meterRegistry, String result) {
+        return Counter.builder("orders.confirmed").description("Order confirmations by outcome")
+                .tag("result", result).register(meterRegistry);
     }
 
     private Mono<OrderEntity> load(long id) {

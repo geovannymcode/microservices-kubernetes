@@ -14,26 +14,32 @@ import tools.jackson.databind.json.JsonMapper;
 public class OutboxWriter {
 
     private static final String INSERT = """
-            INSERT INTO outbox_event (id, aggregate_type, aggregate_id, event_type, payload)
-            VALUES (:id, 'order', :aggregateId, :eventType, CAST(:payload AS JSONB))""";
+            INSERT INTO outbox_event (id, aggregate_type, aggregate_id, event_type, payload, trace_parent)
+            VALUES (:id, 'order', :aggregateId, :eventType, CAST(:payload AS JSONB), :traceParent)""";
 
     private final DatabaseClient database;
     private final JsonMapper json;
+    private final OutboxTracing tracing;
 
-    public OutboxWriter(DatabaseClient database, JsonMapper json) {
+    OutboxWriter(DatabaseClient database, JsonMapper json, OutboxTracing tracing) {
         this.database = database;
         this.json = json;
+        this.tracing = tracing;
     }
 
     public Mono<Void> append(OrderEntity order) {
         return Mono.fromCallable(() -> OrderEvent.of(order))
                 // Serialized once, here, with Jackson 3. JSONB normalizes key order and spacing, so the relay
                 // publishes the same content, not necessarily the same bytes.
-                .flatMap(event -> database.sql(INSERT)
-                        .bind("id", event.eventId())
-                        .bind("aggregateId", String.valueOf(event.data().orderId()))
-                        .bind("eventType", event.eventType())
-                        .bind("payload", json.writeValueAsString(event))
-                        .then());
+                .flatMap(event -> {
+                    var insert = database.sql(INSERT)
+                            .bind("id", event.eventId())
+                            .bind("aggregateId", String.valueOf(event.data().orderId()))
+                            .bind("eventType", event.eventType())
+                            .bind("payload", json.writeValueAsString(event));
+                    String traceParent = tracing.currentTraceParent();
+                    return (traceParent == null ? insert.bindNull("traceParent", String.class)
+                            : insert.bind("traceParent", traceParent)).then();
+                });
     }
 }

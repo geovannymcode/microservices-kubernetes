@@ -1,0 +1,19 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-add-column-outbox-event-trace-parent
+      author: geovannycode
+      comment: >-
+        W3C traceparent de la petición que generó el evento: el relay publica como hijo de esa traza, así la traza
+        de confirmar una orden llega hasta el mensaje de Kafka y, desde ahí, a Notification.
+      changes:
+        - addColumn:
+            tableName: outbox_event
+            columns:
+              - column:
+                  name: trace_parent
+                  type: VARCHAR(55)
+                  remarks: Nulo si no había traza activa (por ejemplo, muestreo desactivado)
+      rollback:
+        - dropColumn:
+            tableName: outbox_event
+            columnName: trace_parent

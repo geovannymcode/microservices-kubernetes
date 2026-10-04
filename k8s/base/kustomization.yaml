@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: codearti
+namespace: geovannycode
 resources:
   - serviceaccount.yaml
   - deployment.yaml
@@ -10,7 +10,7 @@ resources:
 # Only part-of is common: the Namespace is shared with k8s/mysql, so a version label here would flip on every apply.
 labels:
   - pairs:
-      app.kubernetes.io/part-of: codearti-shop
+      app.kubernetes.io/part-of: geovannycode-shop
     includeTemplates: true
 # Generated (hashed name) so a config change rolls the pods; overlays merge into it.
 configMapGenerator:

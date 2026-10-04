@@ -17,6 +17,8 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
 import io.github.resilience4j.timelimiter.TimeLimiter;
 import io.github.resilience4j.timelimiter.TimeLimiterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -29,6 +31,7 @@ import reactor.core.publisher.Mono;
 @Component
 public class InventoryGateway {
 
+    private static final Logger LOG = LoggerFactory.getLogger(InventoryGateway.class);
     static final String INSTANCE = "inventory";
 
     private final InventoriesApi inventory;
@@ -44,6 +47,9 @@ public class InventoryGateway {
         this.rateLimiter = rateLimiters.rateLimiter(INSTANCE);
         this.circuitBreaker = circuitBreakers.circuitBreaker(INSTANCE);
         this.retry = retries.retry(INSTANCE);
+        // One line per transition (CLOSED -> OPEN -> HALF_OPEN -> CLOSED): the timeline of an Inventory outage.
+        circuitBreaker.getEventPublisher().onStateTransition(event -> LOG.info("Circuito hacia Inventory: {} -> {}",
+                event.getStateTransition().getFromState(), event.getStateTransition().getToState()));
     }
 
     /**

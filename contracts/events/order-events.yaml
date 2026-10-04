@@ -21,7 +21,7 @@ info:
     ignorar los campos que no conoce. Un cambio incompatible publica `version: 2` en un topic nuevo
     (`orders.events.v2`) durante la transición. Schema Registry con Avro queda como mejora opcional.
   contact:
-    name: Codearti
+    name: geovannycode
 defaultContentType: application/json
 
 servers:

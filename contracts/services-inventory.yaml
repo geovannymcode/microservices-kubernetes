@@ -103,7 +103,7 @@ paths:
               examples:
                 invalidDelay:
                   value:
-                    type: https://codearti.com/problems/validation-error
+                    type: https://geovannycode.com/problems/validation-error
                     title: Solicitud inválida
                     status: 400
                     detail: Los datos de entrada no son válidos.
@@ -160,7 +160,7 @@ paths:
               examples:
                 invalidStock:
                   value:
-                    type: https://codearti.com/problems/validation-error
+                    type: https://geovannycode.com/problems/validation-error
                     title: Solicitud inválida
                     status: 400
                     detail: Los datos de entrada no son válidos.
@@ -178,7 +178,7 @@ paths:
               examples:
                 duplicate:
                   value:
-                    type: https://codearti.com/problems/duplicate-product
+                    type: https://geovannycode.com/problems/duplicate-product
                     title: Producto duplicado
                     status: 409
                     detail: Ya existe un producto con código PRD-1001.
@@ -272,7 +272,7 @@ paths:
               examples:
                 invalidOrderCount:
                   value:
-                    type: https://codearti.com/problems/validation-error
+                    type: https://geovannycode.com/problems/validation-error
                     title: Solicitud inválida
                     status: 400
                     detail: Los datos de entrada no son válidos.
@@ -292,7 +292,7 @@ paths:
               examples:
                 insufficientStock:
                   value:
-                    type: https://codearti.com/problems/insufficient-stock
+                    type: https://geovannycode.com/problems/insufficient-stock
                     title: Stock insuficiente
                     status: 409
                     detail: 'Stock insuficiente para el producto AC-1550: cantidad solicitada 2.'
@@ -307,7 +307,7 @@ paths:
               examples:
                 idempotencyKeyReused:
                   value:
-                    type: https://codearti.com/problems/idempotency-key-reused
+                    type: https://geovannycode.com/problems/idempotency-key-reused
                     title: Clave de idempotencia reutilizada
                     status: 422
                     detail: La clave order:7f3c2a90 ya se usó con otra solicitud.
@@ -417,7 +417,7 @@ components:
           examples:
             missing:
               value:
-                type: https://codearti.com/problems/product-not-found
+                type: https://geovannycode.com/problems/product-not-found
                 title: Producto no encontrado
                 status: 404
                 detail: No se encontró el producto con código AC-1550.
@@ -432,7 +432,7 @@ components:
           examples:
             invalidCode:
               value:
-                type: https://codearti.com/problems/validation-error
+                type: https://geovannycode.com/problems/validation-error
                 title: Solicitud inválida
                 status: 400
                 detail: Los datos de entrada no son válidos.

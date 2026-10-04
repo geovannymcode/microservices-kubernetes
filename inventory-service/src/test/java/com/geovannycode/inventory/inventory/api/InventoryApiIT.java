@@ -52,7 +52,7 @@ final class InventoryApiIT {
         client.get().uri(PATH + "/NOEXISTE").exchange().expectStatus().isNotFound()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody().jsonPath("$.status").isEqualTo(404)
-                .jsonPath("$.type").isEqualTo("https://codearti.com/problems/product-not-found")
+                .jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/product-not-found")
                 .jsonPath("$.instance").isEqualTo(PATH + "/NOEXISTE")
                 .jsonPath("$.timestamp").value(value -> Instant.parse((String) value));
     }
@@ -67,7 +67,7 @@ final class InventoryApiIT {
                 .jsonPath("$.price").isEqualTo(123.5).jsonPath("$.stock").isEqualTo(50);
         client.post().uri(PATH).bodyValue(request).exchange().expectStatus().isEqualTo(409)
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody().jsonPath("$.type").isEqualTo("https://codearti.com/problems/duplicate-product")
+                .expectBody().jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/duplicate-product")
                 .jsonPath("$.status").isEqualTo(409).jsonPath("$.timestamp").exists();
     }
 
@@ -79,7 +79,7 @@ final class InventoryApiIT {
                 .expectBody().jsonPath("$.errors[*].field").value(fields ->
                         assertThat(((java.util.List<?>) fields).stream().map(Object::toString).toList())
                                 .contains("stock", "price"))
-                .jsonPath("$.type").isEqualTo("https://codearti.com/problems/validation-error");
+                .jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/validation-error");
     }
 
     @Test
@@ -97,7 +97,7 @@ final class InventoryApiIT {
     void rejectsMalformedJsonAndMissingBody() {
         client.post().uri(PATH).contentType(MediaType.APPLICATION_JSON).bodyValue("{\"stock\":")
                 .exchange().expectStatus().isBadRequest().expectBody()
-                .jsonPath("$.type").isEqualTo("https://codearti.com/problems/invalid-request")
+                .jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/invalid-request")
                 .jsonPath("$.timestamp").exists().jsonPath("$.trace").doesNotExist();
         client.put().uri(PATH + "/AC-1550").contentType(MediaType.APPLICATION_JSON)
                 .exchange().expectStatus().isBadRequest();
@@ -123,7 +123,7 @@ final class InventoryApiIT {
         }
         client.put().uri(PATH + "/" + code).bodyValue(new OrderInvRequest(1)).exchange()
                 .expectStatus().isEqualTo(409).expectBody()
-                .jsonPath("$.type").isEqualTo("https://codearti.com/problems/insufficient-stock")
+                .jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/insufficient-stock")
                 .jsonPath("$.timestamp").exists();
         client.get().uri(PATH + "/" + code).exchange().expectStatus().isOk()
                 .expectBody().jsonPath("$.stock").isEqualTo(0);
@@ -161,7 +161,7 @@ final class InventoryApiIT {
         client.get().uri(PATH + "/" + code).exchange().expectBody().jsonPath("$.stock").isEqualTo(8);
         decrease(code, 3, key).expectStatus().isEqualTo(422)
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody().jsonPath("$.type").isEqualTo("https://codearti.com/problems/idempotency-key-reused");
+                .expectBody().jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/idempotency-key-reused");
         client.get().uri(PATH + "/" + code).exchange().expectBody().jsonPath("$.stock").isEqualTo(8);
     }
 

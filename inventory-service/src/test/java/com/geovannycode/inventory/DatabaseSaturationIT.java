@@ -47,7 +47,7 @@ final class DatabaseSaturationIT {
             client.get().uri(PRODUCT).exchange()
                     .expectStatus().isEqualTo(503)
                     .expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "5")
-                    .expectBody().jsonPath("$.type").isEqualTo("https://codearti.com/problems/database-unavailable");
+                    .expectBody().jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/database-unavailable");
             // max-acquire-time 1 s x (1 + acquire-retry) stays under the readiness probe's 3 s timeout.
             assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(3));
         } finally {

@@ -1,4 +1,4 @@
-# In-cluster DNS for Order: http://service-inventory.codearti.svc.cluster.local/services-inventory
+# In-cluster DNS for Order: http://service-inventory.geovannycode.svc.cluster.local/services-inventory
 apiVersion: v1
 kind: Service
 metadata:

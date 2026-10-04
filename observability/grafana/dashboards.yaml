@@ -1,0 +1,11 @@
+# Grafana dashboard provider for the course dashboards (observability/dashboards, mounted read-only).
+apiVersion: 1
+
+providers:
+  - name: "geovannycode"
+    folder: "geovannycode"
+    type: file
+    allowUiUpdates: false
+    options:
+      path: /otel-lgtm/geovannycode-dashboards
+      foldersFromFilesStructure: false

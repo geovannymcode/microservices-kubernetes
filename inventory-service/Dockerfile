@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Build from the course root so the OpenAPI contract is available as a named context:
-#   docker build --build-context contracts=contracts -t codearti/service-inventory:0.0.1-SNAPSHOT inventory-service
+#   docker build --build-context contracts=contracts -t geovannycode/service-inventory:0.0.1-SNAPSHOT inventory-service
 # docker compose passes the same context through build.additional_contexts.
 
 ARG JDK_IMAGE=eclipse-temurin:25-jdk@sha256:8c0a84ea11c8f6ed52600fc19f1040121f2a162998e9f50a5faebbbad9172dcc

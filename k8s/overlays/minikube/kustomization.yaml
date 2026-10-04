@@ -5,7 +5,7 @@ resources:
 secretGenerator:
   # .env is git-ignored; copy .env.example (or run make k8s-secrets). Must match k8s/mysql/.env.
   - name: service-inventory-db
-    namespace: codearti
+    namespace: geovannycode
     envs:
       - .env
     options:
@@ -13,7 +13,7 @@ secretGenerator:
         app.kubernetes.io/name: service-inventory
 configMapGenerator:
   - name: service-inventory-config
-    namespace: codearti
+    namespace: geovannycode
     behavior: merge
     literals:
       - TRACING_SAMPLING=1.0
@@ -28,7 +28,7 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Never
-  # NodePort so "minikube service service-inventory -n codearti --url" can expose it to Postman.
+  # NodePort so "minikube service service-inventory -n geovannycode --url" can expose it to Postman.
   - target:
       kind: Service
       name: service-inventory

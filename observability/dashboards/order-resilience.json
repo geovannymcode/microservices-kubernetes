@@ -1,0 +1,503 @@
+{
+  "uid": "order-resilience",
+  "title": "Order — Resiliencia hacia Inventory",
+  "tags": [
+    "geovannycode",
+    "service-order",
+    "resilience4j"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 3,
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "state-timeline",
+      "title": "Estado del circuito hacia Inventory",
+      "description": "CLOSED → OPEN → HALF_OPEN → CLOSED. resilience4j_circuitbreaker_state vale 1 en el estado actual.",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "5s",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(resilience4j_circuitbreaker_state{application=\"service-order\",name=\"inventory\",state=\"half_open\"}) * 1 + max(resilience4j_circuitbreaker_state{application=\"service-order\",name=\"inventory\",state=\"open\"}) * 2 + max(resilience4j_circuitbreaker_state{application=\"service-order\",name=\"inventory\",state=\"forced_open\"}) * 2",
+          "legendFormat": "inventory",
+          "refId": "A",
+          "interval": "5s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": -0.5,
+                "to": 0.5,
+                "result": {
+                  "text": "CLOSED",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 0.5,
+                "to": 1.5,
+                "result": {
+                  "text": "HALF_OPEN",
+                  "color": "yellow",
+                  "index": 1
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 1.5,
+                "to": 2.5,
+                "result": {
+                  "text": "OPEN",
+                  "color": "red",
+                  "index": 2
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Tasa de fallos del circuito (%)",
+      "description": "Porcentaje de llamadas fallidas en la ventana deslizante (10 llamadas). -1 mientras no hay llamadas suficientes (mínimo 5). El circuito abre al 50 %.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "5s",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "resilience4j_circuitbreaker_failure_rate{application=\"service-order\",name=\"inventory\"}",
+          "legendFormat": "fallos",
+          "refId": "A",
+          "interval": "5s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "resilience4j_circuitbreaker_slow_call_rate{application=\"service-order\",name=\"inventory\"}",
+          "legendFormat": "lentas",
+          "refId": "B",
+          "interval": "5s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": -1,
+          "max": 100,
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Llamadas a Inventory por resultado (/s)",
+      "description": "Llamadas registradas por el circuit breaker, incluidas las rechazadas sin llamar (not_permitted) con el circuito abierto.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "5s",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (kind) (rate(resilience4j_circuitbreaker_calls_seconds_count{application=\"service-order\",name=\"inventory\"}[$__rate_interval]))",
+          "legendFormat": "{{kind}}",
+          "refId": "A",
+          "interval": "5s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(resilience4j_circuitbreaker_not_permitted_calls_total{application=\"service-order\",name=\"inventory\"}[$__rate_interval]))",
+          "legendFormat": "not_permitted",
+          "refId": "B",
+          "interval": "5s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 30
+          }
+        },
+        "overrides": []
+      },
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Reintentos hacia Inventory (/s)",
+      "description": "successful_with_retry: se recuperó reintentando; failed_with_retry: agotó los 3 intentos; *_without_retry: primer intento.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "5s",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (kind) (rate(resilience4j_retry_calls_total{application=\"service-order\",name=\"inventory\"}[$__rate_interval]))",
+          "legendFormat": "{{kind}}",
+          "refId": "A",
+          "interval": "5s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "id": 4
+    },
+    {
+      "type": "timeseries",
+      "title": "Latencia p95 hacia Inventory",
+      "description": "Por intento HTTP (cada reintento es una petición), desde el histograma http.client.requests del WebClient.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "5s",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(http_client_requests_seconds_bucket{application=\"service-order\",uri=~\".*inventories.*\"}[$__rate_interval])))",
+          "legendFormat": "p95 {{outcome}}",
+          "refId": "A",
+          "interval": "5s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Órdenes confirmadas por resultado",
+      "description": "orders.confirmed: completed (stock descontado), canceled (Inventory rechazó), unavailable (503, la orden sigue pendiente).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "5s",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (result) (increase(orders_confirmed_total{application=\"service-order\"}[$__rate_interval]))",
+          "legendFormat": "{{result}}",
+          "refId": "A",
+          "interval": "5s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "completed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "canceled"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "unavailable"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "id": 6
+    },
+    {
+      "type": "stat",
+      "title": "Totales desde el arranque",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(orders_registered_total{application=\"service-order\"})",
+          "legendFormat": "registradas",
+          "refId": "A",
+          "interval": "5s"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (result) (orders_confirmed_total{application=\"service-order\"})",
+          "legendFormat": "{{result}}",
+          "refId": "B",
+          "interval": "5s"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name",
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Eventos pendientes en la outbox",
+      "description": "outbox.pending: crece si Kafka está caído; vuelve a 0 cuando el relay publica.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "interval": "5s",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(outbox_pending{application=\"service-order\"})",
+          "legendFormat": "pendientes",
+          "refId": "A",
+          "interval": "5s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "id": 8
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

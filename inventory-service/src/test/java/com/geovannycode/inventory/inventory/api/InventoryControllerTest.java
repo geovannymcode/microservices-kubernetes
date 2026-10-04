@@ -168,7 +168,7 @@ final class InventoryControllerTest {
     }
     private static WebTestClient.BodyContentSpec assertProblem(WebTestClient.ResponseSpec result, int status, String slug, String title) {
         return result.expectStatus().isEqualTo(status).expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody().jsonPath("$.type").isEqualTo("https://codearti.com/problems/" + slug)
+                .expectBody().jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/" + slug)
                 .jsonPath("$.title").isEqualTo(title).jsonPath("$.status").isEqualTo(status)
                 .jsonPath("$.instance").exists().jsonPath("$.timestamp").exists();
     }

@@ -289,7 +289,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
-                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/product-not-found\"));"
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/product-not-found\"));"
                         ]
                       }
                     }
@@ -388,7 +388,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
-                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/duplicate-product\"));"
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/duplicate-product\"));"
                         ]
                       }
                     }
@@ -432,7 +432,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
-                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/validation-error\"));"
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/validation-error\"));"
                         ]
                       }
                     }
@@ -693,7 +693,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
-                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/insufficient-stock\"));"
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/insufficient-stock\"));"
                         ]
                       }
                     }
@@ -976,7 +976,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
-                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/product-not-found\"));"
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/product-not-found\"));"
                         ]
                       }
                     }
@@ -1075,7 +1075,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
-                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/duplicate-product\"));"
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/duplicate-product\"));"
                         ]
                       }
                     }
@@ -1119,7 +1119,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));",
-                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/validation-error\"));"
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/validation-error\"));"
                         ]
                       }
                     }
@@ -1380,7 +1380,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
-                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/insufficient-stock\"));"
+                          "pm.test(\"ProblemDetail type\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/insufficient-stock\"));"
                         ]
                       }
                     }
@@ -1439,7 +1439,7 @@
               ]
             }
           ],
-          "description": "Contra minikube: {{domainISk8s}} es la URL que imprime \"minikube service service-inventory -n codearti --url\" (por ejemplo http://127.0.0.1:62795). Datos semilla recién creados por Flyway."
+          "description": "Contra minikube: {{domainISk8s}} es la URL que imprime \"minikube service service-inventory -n geovannycode --url\" (por ejemplo http://127.0.0.1:62795). Datos semilla recién creados por Flyway."
         }
       ]
     },
@@ -1575,7 +1575,7 @@
                   ]
                 },
                 {
-                  "name": "prometheus",
+                  "name": "retries",
                   "request": {
                     "method": "GET",
                     "header": [
@@ -1584,9 +1584,104 @@
                         "value": "application/json"
                       }
                     ],
+                    "url": "http://{{domainOS}}/services-order/actuator/retries"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Instancia inventory\", () => pm.expect(pm.response.json().retries).to.include(\"inventory\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "ratelimiters",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/actuator/ratelimiters"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Instancia inventory\", () => pm.expect(pm.response.json().rateLimiters).to.include(\"inventory\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "health resilience",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/actuator/health/resilience"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Estado del circuito\", () => pm.expect(pm.response.json().components.circuitBreakers.details.inventory.details.state).to.be.oneOf([\"CLOSED\", \"OPEN\", \"HALF_OPEN\"]));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "prometheus",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "text/plain"
+                      }
+                    ],
                     "url": "http://{{domainOS}}/services-order/actuator/prometheus",
-                    "description": "Se expone en la fase de observabilidad."
-                  }
+                    "description": "Formato de texto de Prometheus (con Accept: application/json responde 406)."
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Métricas de Resilience4j\", () => {",
+                          "  const body = pm.response.text();",
+                          "  [\"resilience4j_circuitbreaker_state\", \"resilience4j_retry_calls_total\", \"resilience4j_ratelimiter_available_permissions\", \"resilience4j_timelimiter_calls_total\"]",
+                          "    .forEach(metric => pm.expect(body).to.include(metric));",
+                          "});",
+                          "pm.test(\"Métricas de negocio\", () => {",
+                          "  const body = pm.response.text();",
+                          "  [\"orders_registered_total\", \"orders_confirmed_total\", \"outbox_pending\"].forEach(metric => pm.expect(body).to.include(metric));",
+                          "});"
+                        ]
+                      }
+                    }
+                  ]
                 }
               ]
             },
@@ -1763,7 +1858,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
-                          "pm.test(\"ProblemDetail order-rejected\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/order-rejected\"));",
+                          "pm.test(\"ProblemDetail order-rejected\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/order-rejected\"));",
                           "pm.test(\"reason PRODUCT_NOT_FOUND\", () => pm.expect(pm.response.json().reason).to.eql(\"PRODUCT_NOT_FOUND\"));"
                         ]
                       }
@@ -1864,7 +1959,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
-                          "pm.test(\"ProblemDetail order-rejected\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/order-rejected\"));",
+                          "pm.test(\"ProblemDetail order-rejected\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/order-rejected\"));",
                           "pm.test(\"reason INSUFFICIENT_STOCK\", () => pm.expect(pm.response.json().reason).to.eql(\"INSUFFICIENT_STOCK\"));"
                         ]
                       }
@@ -1914,7 +2009,7 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
-                          "pm.test(\"ProblemDetail order-not-found\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/order-not-found\"));"
+                          "pm.test(\"ProblemDetail order-not-found\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/order-not-found\"));"
                         ]
                       }
                     }
@@ -2006,7 +2101,7 @@
                     "type": "text/javascript",
                     "exec": [
                       "pm.test(\"HTTP 503\", () => pm.response.to.have.status(503));",
-                      "pm.test(\"ProblemDetail inventory-unavailable\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/inventory-unavailable\"));",
+                      "pm.test(\"ProblemDetail inventory-unavailable\", () => pm.expect(pm.response.json().type).to.eql(\"https://geovannycode.com/problems/inventory-unavailable\"));",
                       "pm.test(\"Retry-After\", () => pm.response.to.have.header(\"Retry-After\"));"
                     ]
                   }

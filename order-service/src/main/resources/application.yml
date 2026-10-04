@@ -13,6 +13,9 @@ spring:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:orderdb}
     user: ${DB_USER:order}
     password: ${DB_PASSWORD:}
+  reactor:
+    # Restores the Micrometer observation (traceId/spanId in MDC) on every Reactor operator thread hop.
+    context-propagation: auto
   jackson:
     # Same strictness as Inventory: {"quantity": 1.9} or {"quantity": "2"} are 400, never silently coerced.
     deserialization:
@@ -42,6 +45,9 @@ spring:
         delivery.timeout.ms: 30000
         request.timeout.ms: 10000
         max.block.ms: 5000
+    template:
+      # Producer span per send; it injects traceparent into the record headers for Notification.
+      observation-enabled: true
     admin:
       # Topic creation (local/docker/test) must not hold startup for long when Kafka is down: Order keeps
       # working and the outbox waits.
@@ -55,21 +61,56 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,circuitbreakers,circuitbreakerevents
+        # Resilience4j endpoints are read-only views of the inventory instance (state, events, permits).
+        include: health,info,prometheus,metrics,circuitbreakers,circuitbreakerevents,retries,ratelimiters
   endpoint:
     health:
+      show-details: when-authorized
+      # Component statuses (not details) are public, so circuitBreakers shows CLOSED/OPEN as information.
+      show-components: always
       probes:
         enabled: true
       group:
-        # Explicitly only the application state: neither Kafka nor Inventory may take Order out of rotation.
-        # With Kafka down, orders are still confirmed and their events wait in the outbox.
+        liveness:
+          include: livenessState
+        # Database only: an open circuit toward Inventory or Kafka being down must not take Order out of
+        # rotation (confirmations answer 503 fast, events wait in the outbox). Restarting would not fix either.
         readiness:
-          include: readinessState
+          include: readinessState,r2dbc
+        # /actuator/health/resilience: the circuit toward Inventory with its details (state, failure rate),
+        # without making every other component's details public. Informational only, never a probe.
+        resilience:
+          include: circuitBreakers
+          show-details: always
   health:
     # Shows the inventory circuit in /actuator/health; allowHealthIndicatorToFail=false keeps an Inventory
     # outage from marking Order itself as DOWN (probes are unaffected either way).
     circuitbreakers:
       enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      # Buckets instead of client-side percentiles: Prometheus computes p50/p95/p99 with
+      # histogram_quantile() and, unlike client percentiles, they aggregate across pods.
+      percentiles-histogram:
+        "[http.server.requests]": true
+        "[http.client.requests]": true
+      slo:
+        "[http.server.requests]": 100ms,300ms,1s
+  # Prometheus scrapes /actuator/prometheus; OTLP push stays off unless OTEL_METRICS_EXPORTER=otlp.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
 
 outbox:
   topic: orders.events.v1

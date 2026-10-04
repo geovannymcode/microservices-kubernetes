@@ -2,7 +2,7 @@
 import http from 'k6/http';
 import { check } from 'k6';
 
-const BASE = 'http://service-inventory.codearti.svc.cluster.local/services-inventory';
+const BASE = 'http://service-inventory.geovannycode.svc.cluster.local/services-inventory';
 
 export default function () {
   const response = http.get(`${BASE}/inventories`, { headers: { Accept: 'application/json' } });

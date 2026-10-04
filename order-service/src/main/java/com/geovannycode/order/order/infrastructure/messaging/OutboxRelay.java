@@ -3,8 +3,13 @@ package com.geovannycode.order.order.infrastructure.messaging;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Span;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -35,7 +40,7 @@ public class OutboxRelay implements SmartLifecycle {
     private static final Logger LOG = LoggerFactory.getLogger(OutboxRelay.class);
 
     private static final String LOCK_PENDING = """
-            SELECT id, aggregate_id, event_type, payload::text AS payload
+            SELECT id, aggregate_id, event_type, payload::text AS payload, trace_parent
             FROM outbox_event
             WHERE published_at IS NULL
             ORDER BY created_at
@@ -43,19 +48,26 @@ public class OutboxRelay implements SmartLifecycle {
             FOR UPDATE SKIP LOCKED""";
     private static final String MARK_PUBLISHED = "UPDATE outbox_event SET published_at = now() WHERE id IN (:ids)";
     private static final String DELETE_PUBLISHED = "DELETE FROM outbox_event WHERE published_at < :threshold";
+    private static final String COUNT_PENDING = "SELECT count(*) AS pending FROM outbox_event WHERE published_at IS NULL";
 
     private final DatabaseClient database;
     private final TransactionalOperator transactions;
     private final KafkaTemplate<String, String> kafka;
     private final OutboxProperties outbox;
+    private final OutboxTracing tracing;
+    private final AtomicLong pending = new AtomicLong();
     private volatile @Nullable Disposable loops;
 
-    public OutboxRelay(DatabaseClient database, TransactionalOperator transactions, KafkaTemplate<String, String> kafka,
-                       OutboxProperties outbox) {
+    OutboxRelay(DatabaseClient database, TransactionalOperator transactions, KafkaTemplate<String, String> kafka,
+                OutboxProperties outbox, OutboxTracing tracing, MeterRegistry meterRegistry) {
         this.database = database;
         this.transactions = transactions;
         this.kafka = kafka;
         this.outbox = outbox;
+        this.tracing = tracing;
+        // Refreshed after every cycle: a growing value means Kafka is down or the relay cannot keep up.
+        Gauge.builder("outbox.pending", pending, AtomicLong::get)
+                .description("Outbox events not yet published to Kafka").register(meterRegistry);
     }
 
     /** Publishes batches until one comes back incomplete; emits the number of events published. */
@@ -63,6 +75,14 @@ public class OutboxRelay implements SmartLifecycle {
         return publishBatch()
                 .expand(published -> published == outbox.batchSize() ? publishBatch() : Mono.empty())
                 .reduce(0L, Long::sum);
+    }
+
+    /** Counts unpublished events (partial index) and updates the outbox.pending gauge. */
+    public Mono<Long> refreshPendingGauge() {
+        return database.sql(COUNT_PENDING)
+                .map(row -> Objects.requireNonNull(row.get("pending", Long.class)))
+                .one()
+                .doOnNext(pending::set);
     }
 
     /** Deletes published events older than the retention; emits the number of rows deleted. */
@@ -85,7 +105,8 @@ public class OutboxRelay implements SmartLifecycle {
         return database.sql(LOCK_PENDING)
                 .bind("limit", outbox.batchSize())
                 .map(row -> new PendingEvent(row.get("id", UUID.class), row.get("aggregate_id", String.class),
-                        row.get("event_type", String.class), row.get("payload", String.class)))
+                        row.get("event_type", String.class), row.get("payload", String.class),
+                        row.get("trace_parent", String.class)))
                 .all()
                 // The whole batch is read before the first send: rows are not streamed while waiting for acks.
                 .collectList();
@@ -110,9 +131,17 @@ public class OutboxRelay implements SmartLifecycle {
                 .add("eventType", event.eventType().getBytes(StandardCharsets.UTF_8))
                 .add("eventId", event.id().toString().getBytes(StandardCharsets.UTF_8));
         // send() may block up to max.block.ms while fetching metadata (Kafka down): never on a Netty or parallel thread.
-        return Mono.fromFuture(() -> kafka.send(message))
-                .subscribeOn(Schedulers.boundedElastic())
-                .then();
+        // Inside a child span of the original request, KafkaTemplate's producer observation joins that trace.
+        return Mono.using(() -> tracing.startRelaySpan(event.traceParent(), outbox.topic()),
+                span -> Mono.fromFuture(() -> {
+                            try (var scope = tracing.inScope(span)) {
+                                return kafka.send(message);
+                            }
+                        })
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .doOnError(span::error)
+                        .then(),
+                Span::end);
     }
 
     private Mono<Long> markPublished(List<UUID> ids) {
@@ -129,7 +158,7 @@ public class OutboxRelay implements SmartLifecycle {
         // keeps a single cycle in flight per replica.
         var relay = Flux.interval(outbox.pollInterval())
                 .onBackpressureDrop()
-                .concatMap(tick -> publishPending().onErrorResume(error -> {
+                .concatMap(tick -> publishPending().then(refreshPendingGauge()).onErrorResume(error -> {
                     LOG.error("Fallo inesperado en el ciclo del relay de la outbox", error);
                     return Mono.empty();
                 }), 0)
@@ -160,6 +189,7 @@ public class OutboxRelay implements SmartLifecycle {
         return loops != null;
     }
 
-    private record PendingEvent(UUID id, String aggregateId, String eventType, String payload) {
+    private record PendingEvent(UUID id, String aggregateId, String eventType, String payload,
+                                @Nullable String traceParent) {
     }
 }

@@ -31,7 +31,7 @@ public final class InventoryStubs {
             case 422 -> "idempotency-key-reused";
             default -> "internal-error";
         };
-        return "{\"type\":\"https://codearti.com/problems/" + slug + "\",\"title\":\"Problema\",\"status\":" + status
+        return "{\"type\":\"https://geovannycode.com/problems/" + slug + "\",\"title\":\"Problema\",\"status\":" + status
                 + ",\"detail\":\"Respuesta simulada.\",\"instance\":\"" + decreasePath(code)
                 + "\",\"timestamp\":\"2026-10-04T15:00:00Z\"}";
     }

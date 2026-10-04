@@ -53,7 +53,7 @@ final class HealthProbesIT {
         response.expectStatus().isEqualTo(503)
                 .expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "5")
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody().jsonPath("$.type").isEqualTo("https://codearti.com/problems/database-unavailable")
+                .expectBody().jsonPath("$.type").isEqualTo("https://geovannycode.com/problems/database-unavailable")
                 .jsonPath("$.detail").value(detail -> org.assertj.core.api.Assertions.assertThat((String) detail)
                         .doesNotContain("Exception"));
     }
