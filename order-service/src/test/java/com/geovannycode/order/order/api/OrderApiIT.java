@@ -4,9 +4,13 @@ import java.time.Duration;
 import java.util.Objects;
 
 import com.geovannycode.order.TestcontainersConfiguration;
+import com.geovannycode.order.generated.dto.OrderResponse;
+import com.geovannycode.order.order.infrastructure.inventory.InventoryStubs;
+import com.geovannycode.order.order.infrastructure.persistence.OrderRepository;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,10 +22,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
@@ -29,10 +33,14 @@ import static com.github.tomakehurst.wiremock.client.WireMock.put;
 import static com.github.tomakehurst.wiremock.client.WireMock.putRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static com.geovannycode.order.order.infrastructure.inventory.InventoryStubs.decreasePath;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // End to end over HTTP: Order on a random port with PostgreSQL (Testcontainers); WireMock plays Inventory.
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// The rate limiter (50/s) is not under test here, and the concurrency test alone fires 100 confirmations in a
+// few seconds, so it is raised to keep a 503 from the limiter out of these assertions.
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "resilience4j.ratelimiter.instances.inventory.limit-for-period=1000")
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("test")
 final class OrderApiIT {
@@ -42,39 +50,46 @@ final class OrderApiIT {
             .options(wireMockConfig().dynamicPort()).build();
 
     private static final String ORDERS = "/services-order/orders";
+    private static final Duration TIMEOUT = Duration.ofSeconds(20);
+    private static final int CONCURRENT_CONFIRMATIONS = 20;
 
     @DynamicPropertySource
     static void inventoryBaseUrl(DynamicPropertyRegistry registry) {
-        registry.add("inventory.client.base-url", () -> INVENTORY.baseUrl() + "/services-inventory");
+        registry.add("inventory.client.base-url", () -> INVENTORY.baseUrl() + InventoryStubs.BASE_PATH);
     }
 
     private final WebTestClient client;
-    private final org.springframework.web.reactive.function.client.WebClient concurrentClient;
+    private final WebClient concurrentClient;
     private final CircuitBreakerRegistry circuitBreakers;
+    private final OrderRepository repository;
 
     @Autowired
-    OrderApiIT(@Value("${local.server.port}") int port, CircuitBreakerRegistry circuitBreakers) {
-        this.client = WebTestClient.bindToServer().baseUrl("http://localhost:" + port)
-                .responseTimeout(Duration.ofSeconds(20)).build();
-        this.concurrentClient = org.springframework.web.reactive.function.client.WebClient.create("http://localhost:" + port);
+    OrderApiIT(@Value("${local.server.port}") int port, CircuitBreakerRegistry circuitBreakers, OrderRepository repository) {
+        this.client = WebTestClient.bindToServer().baseUrl("http://localhost:" + port).responseTimeout(TIMEOUT).build();
+        this.concurrentClient = WebClient.create("http://localhost:" + port);
         this.circuitBreakers = circuitBreakers;
+        this.repository = repository;
     }
 
     @BeforeEach
     void reset() {
         INVENTORY.resetAll();
         circuitBreakers.circuitBreaker("inventory").reset();
+        StepVerifier.create(repository.deleteAll()).expectComplete().verify(TIMEOUT);
     }
 
     @Test
     void createConfirmAndRepeatTheConfirmationWithoutDecreasingTwice() {
         inventoryAnswers("AC-1550", 200);
         long id = create("AC-1550", 2);
+        client.get().uri(ORDERS + "/" + id).exchange().expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody().jsonPath("$.status").isEqualTo("pending").jsonPath("$.quantity").isEqualTo(2);
 
         confirm(id).expectStatus().isOk().expectBody().jsonPath("$.status").isEqualTo("completed");
         confirm(id).expectStatus().isOk().expectBody().jsonPath("$.status").isEqualTo("completed");
 
-        INVENTORY.verify(1, putRequestedFor(urlEqualTo("/services-inventory/inventories/AC-1550"))
+        INVENTORY.verify(1, putRequestedFor(urlEqualTo(decreasePath("AC-1550")))
                 .withHeader("Idempotency-Key", equalTo("order-" + id)));
     }
 
@@ -84,7 +99,7 @@ final class OrderApiIT {
         long id = create("ac-1551", 1);
         client.get().uri(ORDERS + "/" + id).exchange().expectBody().jsonPath("$.codeProduct").isEqualTo("AC-1551");
         confirm(id).expectStatus().isOk();
-        INVENTORY.verify(1, putRequestedFor(urlEqualTo("/services-inventory/inventories/AC-1551")));
+        INVENTORY.verify(1, putRequestedFor(urlEqualTo(decreasePath("AC-1551"))));
     }
 
     @Test
@@ -105,7 +120,8 @@ final class OrderApiIT {
         inventoryAnswers("LOW-1", 409);
         long id = create("LOW-1", 5);
         problem(confirm(id), 409, "order-rejected").jsonPath("$.reason").isEqualTo("INSUFFICIENT_STOCK");
-        client.get().uri(ORDERS + "/" + id).exchange().expectBody().jsonPath("$.cancelReason").isEqualTo("INSUFFICIENT_STOCK");
+        client.get().uri(ORDERS + "/" + id).exchange().expectBody()
+                .jsonPath("$.status").isEqualTo("canceled").jsonPath("$.cancelReason").isEqualTo("INSUFFICIENT_STOCK");
     }
 
     @Test
@@ -121,23 +137,29 @@ final class OrderApiIT {
         confirm(id).expectStatus().isOk().expectBody().jsonPath("$.status").isEqualTo("completed");
     }
 
-    @Test
-    void concurrentConfirmationsBothSucceedWithASingleLogicalDecrease() {
-        INVENTORY.stubFor(put(urlEqualTo("/services-inventory/inventories/AC-1553"))
-                .willReturn(json(200).withFixedDelay(200)));
+    // Repeated so a lucky interleaving cannot hide a race: phase acceptance asks for five green runs in a row.
+    @RepeatedTest(5)
+    void concurrentConfirmationsOfTheSameOrderAllSucceedWithASingleIdempotencyKey() {
+        // A small delay keeps the first calls in flight while the rest read the order as still pending.
+        INVENTORY.stubFor(put(urlEqualTo(decreasePath("AC-1553")))
+                .willReturn(InventoryStubs.decreased("AC-1553", 14).withFixedDelay(50)));
         long id = create("AC-1553", 1);
 
-        // WebClient (non-blocking) so both PUTs are really in flight together; one of them loses the version race.
-        var statuses = Flux.range(0, 2).flatMap(ignored -> concurrentClient.put().uri(ORDERS + "/" + id)
-                .exchangeToMono(response -> response.releaseBody().thenReturn(response.statusCode().value())), 2)
+        // WebClient (non-blocking) so every PUT is really in flight together; all but one lose the version race.
+        var statuses = Flux.range(0, CONCURRENT_CONFIRMATIONS)
+                .flatMap(ignored -> concurrentClient.put().uri(ORDERS + "/" + id)
+                        .exchangeToMono(response -> response.releaseBody().thenReturn(response.statusCode().value())),
+                        CONCURRENT_CONFIRMATIONS)
                 .collectList();
-        StepVerifier.create(statuses).assertNext(codes -> assertThat(codes).containsExactly(200, 200))
-                .expectComplete().verify(Duration.ofSeconds(20));
+        StepVerifier.create(statuses)
+                .assertNext(codes -> assertThat(codes).hasSize(CONCURRENT_CONFIRMATIONS).containsOnly(200))
+                .expectComplete().verify(TIMEOUT);
 
         client.get().uri(ORDERS + "/" + id).exchange().expectBody().jsonPath("$.status").isEqualTo("completed");
-        // Every call Inventory saw carried the same key, so it decreased the stock once.
-        INVENTORY.findAll(putRequestedFor(urlEqualTo("/services-inventory/inventories/AC-1553")))
-                .forEach(request -> assertThat(request.getHeader("Idempotency-Key")).isEqualTo("order-" + id));
+        // Every call Inventory saw carried the order's key, so Inventory decreases the stock once at most.
+        var calls = INVENTORY.findAll(putRequestedFor(urlEqualTo(decreasePath("AC-1553"))));
+        assertThat(calls).isNotEmpty().hasSizeLessThanOrEqualTo(CONCURRENT_CONFIRMATIONS)
+                .allSatisfy(call -> assertThat(call.getHeader("Idempotency-Key")).isEqualTo("order-" + id));
     }
 
     @Test
@@ -148,24 +170,38 @@ final class OrderApiIT {
     }
 
     @Test
+    void invalidRequestIs400Problem() {
+        problem(client.post().uri(ORDERS).contentType(MediaType.APPLICATION_JSON)
+                .bodyValue("{\"codeProduct\":\"\",\"quantity\":0}").exchange(), 400, "validation-error")
+                .jsonPath("$.errors[?(@.field == 'codeProduct')]").exists()
+                .jsonPath("$.errors[?(@.field == 'quantity')]").exists();
+        INVENTORY.verify(0, anyRequestedFor(anyUrl()));
+    }
+
+    @Test
     void listFiltersByStatusInEveryRepresentation() {
         inventoryAnswers("AC-1554", 200);
         long pending = create("AC-1554", 1);
         long completed = create("AC-1554", 1);
         confirm(completed).expectStatus().isOk();
 
-        var pendingIds = client.get().uri(ORDERS + "?status=pending").accept(MediaType.APPLICATION_JSON).exchange()
-                .expectStatus().isOk().expectBodyList(com.geovannycode.order.generated.dto.OrderResponse.class)
-                .returnResult().getResponseBody().stream().map(order -> {
-                    assertThat(order.getStatus().getValue()).isEqualTo("pending");
-                    return order.getId();
-                }).toList();
-        assertThat(pendingIds).contains(pending).doesNotContain(completed);
+        client.get().uri(ORDERS).accept(MediaType.APPLICATION_JSON).exchange().expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody().jsonPath("$.length()").isEqualTo(2)
+                .jsonPath("$[0].id").isEqualTo(pending).jsonPath("$[1].id").isEqualTo(completed);
+        client.get().uri(ORDERS + "?status=pending").accept(MediaType.APPLICATION_JSON).exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.length()").isEqualTo(1).jsonPath("$[0].id").isEqualTo(pending);
 
-        client.get().uri(ORDERS + "?status=completed").accept(MediaType.APPLICATION_NDJSON).exchange()
-                .expectStatus().isOk().expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_NDJSON);
+        var ndjson = client.get().uri(ORDERS + "?status=completed").accept(MediaType.APPLICATION_NDJSON).exchange()
+                .expectStatus().isOk().expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_NDJSON)
+                .returnResult(OrderResponse.class);
+        StepVerifier.create(ndjson.getResponseBody().map(OrderResponse::getId)).expectNext(completed)
+                .expectComplete().verify(TIMEOUT);
+
         client.get().uri(ORDERS).accept(MediaType.TEXT_EVENT_STREAM).exchange()
-                .expectStatus().isOk().expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM);
+                .expectStatus().isOk().expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+                .expectBody(String.class).value(body -> assertThat(body)
+                        .contains("id:" + pending, "id:" + completed, "event:order"));
     }
 
     @Test
@@ -181,7 +217,8 @@ final class OrderApiIT {
         var result = client.post().uri(ORDERS).contentType(MediaType.APPLICATION_JSON)
                 .bodyValue("{\"codeProduct\":\"" + codeProduct + "\",\"quantity\":" + quantity + "}").exchange()
                 .expectStatus().isCreated()
-                .expectBody(com.geovannycode.order.generated.dto.OrderResponse.class).returnResult();
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody(OrderResponse.class).returnResult();
         var order = Objects.requireNonNull(result.getResponseBody());
         assertThat(result.getResponseHeaders().getLocation()).hasToString(ORDERS + "/" + order.getId());
         assertThat(order.getStatus().getValue()).isEqualTo("pending");
@@ -193,15 +230,8 @@ final class OrderApiIT {
     }
 
     private static void inventoryAnswers(String code, int status) {
-        INVENTORY.stubFor(put(urlEqualTo("/services-inventory/inventories/" + code)).willReturn(json(status)));
-    }
-
-    private static com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder json(int status) {
-        String body = status == 200
-                ? "{\"idProduct\":\"X\",\"nameProduct\":\"X\",\"price\":1.00,\"stock\":1}"
-                : "{\"type\":\"https://codearti.com/problems/test\",\"title\":\"test\",\"status\":" + status + "}";
-        return aResponse().withStatus(status).withHeader("Content-Type",
-                status == 200 ? "application/json" : "application/problem+json").withBody(body);
+        INVENTORY.stubFor(put(urlEqualTo(decreasePath(code)))
+                .willReturn(status == 200 ? InventoryStubs.decreased(code, 10) : InventoryStubs.problem(status, code)));
     }
 
     private static WebTestClient.BodyContentSpec problem(WebTestClient.ResponseSpec response, int status, String slug) {

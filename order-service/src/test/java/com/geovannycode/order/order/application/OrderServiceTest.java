@@ -72,11 +72,23 @@ final class OrderServiceTest {
     }
 
     @Test
-    void missingOrderIsNotFoundNeverEmpty() {
+    void missingOrderIsNotFoundAndInventoryIsNeverCalled() {
         when(repository.findById(ID)).thenReturn(Mono.empty());
         StepVerifier.create(service.findById(ID)).expectError(OrderNotFoundException.class).verify();
         StepVerifier.create(service.confirm(ID)).expectError(OrderNotFoundException.class).verify();
         verifyNoInteractions(inventory);
+    }
+
+    @Test
+    void findByIdReturnsTheMappedOrder() {
+        when(repository.findById(ID)).thenReturn(Mono.just(order(OrderStatus.CANCELED)));
+        StepVerifier.create(service.findById(ID))
+                .assertNext(response -> {
+                    assertThat(response.getId()).isEqualTo(ID);
+                    assertThat(response.getStatus().getValue()).isEqualTo("canceled");
+                    assertThat(response.getCancelReason().getValue()).isEqualTo("INSUFFICIENT_STOCK");
+                    assertThat(response.getCreatedAt().getOffset()).isEqualTo(java.time.ZoneOffset.UTC);
+                }).verifyComplete();
     }
 
     @Test
@@ -112,6 +124,11 @@ final class OrderServiceTest {
         StepVerifier.create(service.confirm(ID))
                 .assertNext(response -> assertThat(response.getStatus().getValue()).isEqualTo("completed"))
                 .verifyComplete();
+
+        var saved = ArgumentCaptor.forClass(OrderEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().status()).isEqualTo(OrderStatus.COMPLETED);
+        assertThat(saved.getValue().cancelReason()).isNull();
     }
 
     @Test

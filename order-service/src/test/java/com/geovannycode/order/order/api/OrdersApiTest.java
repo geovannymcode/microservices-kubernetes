@@ -39,7 +39,7 @@ import static org.mockito.Mockito.when;
 @WebFluxTest(properties = "spring.webflux.base-path=")
 // The generated EnumConverterConfiguration is a @Configuration, which slices do not pick up on their own.
 @Import({OrdersApiDelegateImpl.class, EnumConverterConfiguration.class})
-final class OrdersApiDelegateImplTest {
+final class OrdersApiTest {
 
     private static final OffsetDateTime CREATED = OffsetDateTime.of(2026, 10, 3, 19, 0, 0, 0, ZoneOffset.UTC);
     private static final OrderResponse FIRST = response(1L, OrderStatus.PENDING);
@@ -72,6 +72,7 @@ final class OrdersApiDelegateImplTest {
                 .bodyValue("{\"codeProduct\":\"AC-1550\",\"quantity\":2}").exchange()
                 .expectStatus().isCreated()
                 .expectHeader().valueEquals("Location", "/orders/1")
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
                 .expectBody().jsonPath("$.status").isEqualTo("pending").jsonPath("$.id").isEqualTo(1);
     }
 
@@ -112,6 +113,16 @@ final class OrdersApiDelegateImplTest {
     }
 
     @Test
+    void getAnswersTheOrderAsJson() {
+        when(orders.findById(2L)).thenReturn(Mono.just(SECOND));
+        client.get().uri("/orders/2").exchange().expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody().jsonPath("$.id").isEqualTo(2).jsonPath("$.codeProduct").isEqualTo("AC-1550")
+                .jsonPath("$.quantity").isEqualTo(2).jsonPath("$.status").isEqualTo("completed")
+                .jsonPath("$.createdAt").isEqualTo("2026-10-03T19:00:00Z");
+    }
+
+    @Test
     void missingOrderIsProblem404() {
         when(orders.findById(999999L)).thenReturn(Mono.error(new OrderNotFoundException(999999)));
         problem(client.get().uri("/orders/999999").exchange(), 404, "order-not-found")
@@ -122,6 +133,7 @@ final class OrdersApiDelegateImplTest {
     void confirmAnswersCompletedOrder() {
         when(orders.confirm(2L)).thenReturn(Mono.just(SECOND));
         client.put().uri("/orders/2").exchange().expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
                 .expectBody().jsonPath("$.status").isEqualTo("completed");
     }
 
@@ -175,6 +187,7 @@ final class OrdersApiDelegateImplTest {
         return response.expectStatus().isEqualTo(status)
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody().jsonPath("$.type").isEqualTo("https://codearti.com/problems/" + slug)
-                .jsonPath("$.status").isEqualTo(status).jsonPath("$.title").exists().jsonPath("$.timestamp").exists();
+                .jsonPath("$.status").isEqualTo(status).jsonPath("$.title").exists().jsonPath("$.detail").exists()
+                .jsonPath("$.timestamp").exists();
     }
 }

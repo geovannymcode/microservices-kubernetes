@@ -6,7 +6,6 @@ import com.geovannycode.order.TestcontainersConfiguration;
 import com.geovannycode.order.order.domain.CancelReason;
 import com.geovannycode.order.order.domain.InventoryRejectedException;
 import com.geovannycode.order.order.domain.InventoryUnavailableException;
-import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -23,7 +22,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import reactor.test.StepVerifier;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.put;
@@ -42,12 +40,13 @@ final class InventoryGatewayIT {
     static final WireMockExtension INVENTORY = WireMockExtension.newInstance()
             .options(wireMockConfig().dynamicPort()).build();
 
-    private static final String DECREASE = "/services-inventory/inventories/AC-1550";
+    private static final String CODE = "AC-1550";
+    private static final String DECREASE = InventoryStubs.decreasePath(CODE);
     private static final Duration TIMEOUT = Duration.ofSeconds(15);
 
     @DynamicPropertySource
     static void inventoryBaseUrl(DynamicPropertyRegistry registry) {
-        registry.add("inventory.client.base-url", () -> INVENTORY.baseUrl() + "/services-inventory");
+        registry.add("inventory.client.base-url", () -> INVENTORY.baseUrl() + InventoryStubs.BASE_PATH);
     }
 
     private final InventoryGateway gateway;
@@ -67,8 +66,7 @@ final class InventoryGatewayIT {
 
     @Test
     void successSendsTheOrderIdempotencyKeyAndQuantity() {
-        stubDecrease(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
-                .withBody("{\"idProduct\":\"AC-1550\",\"nameProduct\":\"Lentes\",\"price\":123.50,\"stock\":48}"));
+        stubDecrease(InventoryStubs.decreased(CODE, 48));
 
         StepVerifier.create(gateway.reserveStock(42, "AC-1550", 2)).expectComplete().verify(TIMEOUT);
 
@@ -120,8 +118,7 @@ final class InventoryGatewayIT {
         INVENTORY.stubFor(put(urlEqualTo(DECREASE)).inScenario("flaky").whenScenarioStateIs("second")
                 .willReturn(problem(500)).willSetStateTo("third"));
         INVENTORY.stubFor(put(urlEqualTo(DECREASE)).inScenario("flaky").whenScenarioStateIs("third")
-                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
-                        .withBody("{\"idProduct\":\"AC-1550\",\"nameProduct\":\"Lentes\",\"price\":1.00,\"stock\":9}")));
+                .willReturn(InventoryStubs.decreased(CODE, 9)));
 
         StepVerifier.create(gateway.reserveStock(7, "AC-1550", 1)).expectComplete().verify(TIMEOUT);
 
@@ -130,7 +127,7 @@ final class InventoryGatewayIT {
 
     @Test
     void slowInventoryTimesOutEachAttempt() {
-        stubDecrease(aResponse().withStatus(200).withFixedDelay(3_000));
+        stubDecrease(InventoryStubs.decreased(CODE, 9).withFixedDelay(3_000));
         StepVerifier.create(gateway.reserveStock(1, "AC-1550", 1))
                 .expectErrorSatisfies(error -> assertThat(error).isInstanceOf(InventoryUnavailableException.class)
                         .hasRootCauseInstanceOf(java.util.concurrent.TimeoutException.class))
@@ -173,7 +170,6 @@ final class InventoryGatewayIT {
     }
 
     private static com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder problem(int status) {
-        return WireMock.aResponse().withStatus(status).withHeader("Content-Type", "application/problem+json")
-                .withBody("{\"type\":\"https://codearti.com/problems/test\",\"title\":\"test\",\"status\":" + status + "}");
+        return InventoryStubs.problem(status, CODE);
     }
 }

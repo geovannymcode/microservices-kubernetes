@@ -136,13 +136,33 @@ Postman: carpeta `Order Service / local` con el environment `postman/order-local
 
 ## Tests
 
-- **Unitarios** (Surefire, `*Test`): entidad, mapper, `OrderService` (cada fila de la tabla y las relecturas), slice del API (status, headers, `ProblemDetail`, NDJSON y SSE) y CORS.
-- **Integración** (Failsafe, `*IT`): `OrderApiIT` de extremo a extremo por HTTP (PostgreSQL más WireMock como Inventory), con confirmaciones simultáneas reales; `InventoryGatewayIT`, con WireMock 3.13.2 (standalone) haciendo de Inventory, cubre éxito, 404, 409, 422, 5xx persistente y transitorio (misma `Idempotency-Key`), timeout, circuito abierto y rechazos que no lo abren. `OrderRepositoryIT` corre contra PostgreSQL 17.11 con Testcontainers 2 (`@ServiceConnection`, la misma imagen y digest que Compose). Cubre auditoría, versión, bloqueo optimista, filtros y el estado en minúscula.
-- **Liquibase en tests:** corre el changelog real con el contexto `test` (`src/test/resources/application-test.yml`), sin datos semilla.
+| Nivel | Clases | Qué demuestra |
+|---|---|---|
+| Unitario (Surefire, `*Test`) | `OrderServiceTest` | Un test por fila de la tabla de `confirm` (inexistente, completed sin llamar al gateway, canceled, éxito, rechazo con `cancelReason`, Inventory caído sin guardar nada, conflicto de versión con relectura y su límite), más `create`, `findById` y `findAll`. |
+| Slice web | `OrdersApiTest` (`@WebFluxTest` + `@MockitoBean`) | Status, `Location`, `Retry-After`, `Content-Type` y cuerpo de cada endpoint; `ProblemDetail` de 400, 404, 409, 503 y 500; NDJSON y SSE. |
+| Contrato del consumidor | `InventoryContractTest` | Las respuestas de WireMock (200, 404, 409 y 422, en `InventoryStubs`) y la petición que envía el gateway cumplen `contracts/services-inventory.yaml`. Si Inventory cambia su contrato, el build falla. |
+| Arquitectura | `ArchitectureTest` (ArchUnit) | `api` no usa `infrastructure`, `domain` no depende de Spring, solo `infrastructure.inventory` usa WebClient, HTTP service clients y Resilience4j, y no hay ciclos. |
+| Integración (Failsafe, `*IT`) | `OrderApiIT`, `InventoryGatewayIT`, `OrderRepositoryIT` | HTTP real contra PostgreSQL 17.11 (Testcontainers 2), con WireMock como Inventory: flujo feliz, rechazo con orden `canceled` persistida, Inventory caído con 503 y orden `pending`, 20 PUT concurrentes sobre la misma orden (repetido 5 veces) y resiliencia del gateway. |
+| Sistema (`-Psystem-tests`) | `OrderInventorySystemIT` | Order contra la imagen real `codearti/service-inventory` y MySQL: stock 10, 15 órdenes de 1 unidad confirmadas dos veces en paralelo. Resultado: 10 `completed`, 5 `canceled` por `INSUFFICIENT_STOCK` y stock final 0. |
+
+Cada test es independiente: en `@BeforeEach` se vacía la tabla `order_shop`, se reinicia WireMock y se resetea el circuit breaker. No hay `Thread.sleep`: la espera de los tests asíncronos va con `StepVerifier` y timeouts.
+
+Liquibase corre el changelog real con el contexto `test` (`src/test/resources/application-test.yml`), sin datos semilla.
 
 ```sh
-./mvnw verify        # requiere Docker
+./mvnw verify                    # unitarios + integración + JaCoCo (requiere Docker)
+./mvnw verify -Psystem-tests     # además, Order contra la imagen real de Inventory
 ```
+
+**Cobertura (JaCoCo 0.8.15).** Un solo informe para unitarios e integración, en `target/site/jacoco/index.html`. `verify` falla por debajo del 80 % de líneas o del 70 % de ramas. Se excluyen el código generado (`generated/**`), `OrderServiceApplication` y los records sin lógica (`InventoryClientProperties`, `GlobalExceptionHandler.ValidationError`).
+
+**El test de sistema necesita la imagen de Inventory.** Si no existe, falla con el comando para construirla:
+
+```sh
+docker build --build-context contracts=contracts -t codearti/service-inventory:0.0.1-SNAPSHOT inventory-service
+```
+
+No se construye desde el test con `ImageFromDockerfile` porque el Dockerfile necesita BuildKit (contexto con nombre para el contrato y `--mount=type=cache`), y Testcontainers no lo soporta. Para usar otra etiqueta: `-Dinventory.image=...`.
 
 ## Verificación
 
