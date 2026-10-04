@@ -102,6 +102,8 @@ Desde la revisión de código final:
   - Un reintento con la misma clave y el mismo cuerpo responde 200 con el estado actual, sin volver a descontar.
   - La misma clave con otro producto u otra cantidad responde 422 `idempotency-key-reused`.
   - Un 404 o 409 no consume la clave.
+  - Formato (contrato v2.1.0): 1..100 caracteres de `[A-Za-z0-9._:-]`, por ejemplo `order:12345`. La migración V5 ensancha la columna; V3 no se edita.
+  - Se mantiene 422 (no 409) para una clave reutilizada, como en el borrador IETF del header `Idempotency-Key`: el 409 de Inventory significa stock insuficiente y Order lo traduce en cancelar la orden, así que un conflicto de clave no debe confundirse con él.
   - Sin header, el PUT se comporta como antes. Order debe enviar el id de la orden como clave.
 - **Tipos estrictos en el JSON:** `{"orderCount": 1.9}` o `{"orderCount": "3"}` devuelven 400 (`spring.jackson.deserialization.accept-float-as-int` y `spring.jackson.mapper.allow-coercion-of-scalars` están a `false`). Antes, Jackson los convertía y descontaba stock.
 - **Fallos de base de datos:** MySQL caído o el pool agotado devuelven 503 `database-unavailable` con `Retry-After: 5` y un WARN de una línea, no un 500 con stacktrace.

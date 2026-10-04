@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Inventory Service — contrato v2.0.0",
-    "description": "Colección Inventory Service v2.0.0. Ejecutar la carpeta local en orden contra el perfil local. No contiene claves reales.",
+    "name": "Inventory Service — contrato v2.1.0",
+    "description": "Colección Inventory Service v2.1.0. Ejecutar la carpeta local en orden contra el perfil local. No contiene claves reales.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -31,6 +31,34 @@
     },
     {
       "key": "apiKey",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "idempotencyKey",
+      "value": ""
+    },
+    {
+      "key": "stockAfterIdempotentDecrease",
+      "value": ""
+    },
+    {
+      "key": "orderIdNoExiste",
+      "value": ""
+    },
+    {
+      "key": "orderIdSinStock",
+      "value": ""
+    },
+    {
+      "key": "orderIdPendiente",
+      "value": ""
+    },
+    {
+      "key": "lowStockCode",
       "value": ""
     }
   ],
@@ -449,6 +477,83 @@
                         "type": "text/javascript",
                         "exec": [
                           "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "update inventory idempotente",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Idempotency-Key",
+                        "value": "{{idempotencyKey}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"orderCount\":1}"
+                    },
+                    "url": "{{baseUrl}}/services-inventory/inventories/{{savedProductId}}",
+                    "description": "Misma Idempotency-Key en ambas requests: la segunda no vuelve a descontar."
+                  },
+                  "event": [
+                    {
+                      "listen": "prerequest",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.collectionVariables.set(\"idempotencyKey\", \"order:\" + pm.variables.replaceIn(\"{{$guid}}\"));"
+                        ]
+                      }
+                    },
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.collectionVariables.set(\"stockAfterIdempotentDecrease\", pm.response.json().stock);"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "update inventory idempotente (reintento)",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Idempotency-Key",
+                        "value": "{{idempotencyKey}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"orderCount\":1}"
+                    },
+                    "url": "{{baseUrl}}/services-inventory/inventories/{{savedProductId}}",
+                    "description": "Misma Idempotency-Key en ambas requests: la segunda no vuelve a descontar."
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"No vuelve a descontar\", () => pm.expect(pm.response.json().stock).to.eql(Number(pm.collectionVariables.get(\"stockAfterIdempotentDecrease\"))));"
                         ]
                       }
                     }
@@ -1065,6 +1170,83 @@
                   ]
                 },
                 {
+                  "name": "update inventory idempotente",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Idempotency-Key",
+                        "value": "{{idempotencyKey}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"orderCount\":1}"
+                    },
+                    "url": "{{domainISk8s}}/services-inventory/inventories/{{savedProductId}}",
+                    "description": "Misma Idempotency-Key en ambas requests: la segunda no vuelve a descontar."
+                  },
+                  "event": [
+                    {
+                      "listen": "prerequest",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.collectionVariables.set(\"idempotencyKey\", \"order:\" + pm.variables.replaceIn(\"{{$guid}}\"));"
+                        ]
+                      }
+                    },
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.collectionVariables.set(\"stockAfterIdempotentDecrease\", pm.response.json().stock);"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "update inventory idempotente (reintento)",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Idempotency-Key",
+                        "value": "{{idempotencyKey}}"
+                      }
+                    ],
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"orderCount\":1}"
+                    },
+                    "url": "{{domainISk8s}}/services-inventory/inventories/{{savedProductId}}",
+                    "description": "Misma Idempotency-Key en ambas requests: la segunda no vuelve a descontar."
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"No vuelve a descontar\", () => pm.expect(pm.response.json().stock).to.eql(Number(pm.collectionVariables.get(\"stockAfterIdempotentDecrease\"))));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
                   "name": "update inventory error",
                   "request": {
                     "method": "PUT",
@@ -1258,6 +1440,604 @@
             }
           ],
           "description": "Contra minikube: {{domainISk8s}} es la URL que imprime \"minikube service service-inventory -n codearti --url\" (por ejemplo http://127.0.0.1:62795). Datos semilla recién creados por Flyway."
+        }
+      ]
+    },
+    {
+      "name": "Order Service",
+      "item": [
+        {
+          "name": "local",
+          "description": "domainOS = localhost:8081 (environment Order — local).",
+          "item": [
+            {
+              "name": "Actuator",
+              "item": [
+                {
+                  "name": "actuator/health",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/actuator/health"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "liveness",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/actuator/health/liveness"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "readiness",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/actuator/health/readiness"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "circuitbreakers",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/actuator/circuitbreakers"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Instancia inventory\", () => pm.expect(pm.response.json().circuitBreakers).to.have.property(\"inventory\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "circuitbreakerevents",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/actuator/circuitbreakerevents"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "prometheus",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/actuator/prometheus",
+                    "description": "Se expone en la fase de observabilidad."
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Orders",
+              "item": [
+                {
+                  "name": "save order",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"codeProduct\": \"AC-1550\", \"quantity\": 2}"
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                          "pm.test(\"Location presente\", () => pm.response.to.have.header(\"Location\"));",
+                          "if (pm.response.code === 201) { pm.collectionVariables.set(\"orderId\", pm.response.json().id); }",
+                          "pm.test(\"Pendiente\", () => pm.expect(pm.response.json().status).to.eql(\"pending\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save order inválida",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"codeProduct\": null}"
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 400\", () => pm.response.to.have.status(400));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "confirm order",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders/{{orderId}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Orden completada\", () => pm.expect(pm.response.json().status).to.eql(\"completed\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "confirm order ya completada",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders/{{orderId}}",
+                    "description": "Repite la confirmación: 200 sin volver a descontar stock (Idempotency-Key order-<id>)."
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Sigue completada\", () => pm.expect(pm.response.json().status).to.eql(\"completed\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save order producto inexistente",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"codeProduct\":\"NO-EXISTE\",\"quantity\":1}"
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                          "pm.collectionVariables.set(\"orderIdNoExiste\", pm.response.json().id);"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "confirm order producto inexistente",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders/{{orderIdNoExiste}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                          "pm.test(\"ProblemDetail order-rejected\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/order-rejected\"));",
+                          "pm.test(\"reason PRODUCT_NOT_FOUND\", () => pm.expect(pm.response.json().reason).to.eql(\"PRODUCT_NOT_FOUND\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "prepare inventory sin stock (Inventory)",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "{{baseUrl}}/services-inventory/inventories",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"idProduct\":\"{{lowStockCode}}\",\"nameProduct\":\"Sin stock\",\"price\":1.00,\"stock\":1}"
+                    },
+                    "description": "Crea en Inventory ({{baseUrl}}) un producto con stock 1 para el caso sin stock."
+                  },
+                  "event": [
+                    {
+                      "listen": "prerequest",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.collectionVariables.set(\"lowStockCode\", \"LOW-ORD-\" + pm.variables.replaceIn(\"{{$guid}}\").substring(0, 8).toUpperCase());"
+                        ]
+                      }
+                    },
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "save order sin stock",
+                  "request": {
+                    "method": "POST",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders",
+                    "body": {
+                      "mode": "raw",
+                      "raw": "{\"codeProduct\":\"{{lowStockCode}}\",\"quantity\":2}"
+                    }
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                          "pm.collectionVariables.set(\"orderIdSinStock\", pm.response.json().id);"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "confirm order sin stock",
+                  "request": {
+                    "method": "PUT",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders/{{orderIdSinStock}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                          "pm.test(\"ProblemDetail order-rejected\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/order-rejected\"));",
+                          "pm.test(\"reason INSUFFICIENT_STOCK\", () => pm.expect(pm.response.json().reason).to.eql(\"INSUFFICIENT_STOCK\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get order",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders/{{orderId}}"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "get order inexistente",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders/999999"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 404\", () => pm.response.to.have.status(404));",
+                          "pm.test(\"ProblemDetail order-not-found\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/order-not-found\"));"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                {
+                  "name": "list orders pending",
+                  "request": {
+                    "method": "GET",
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      }
+                    ],
+                    "url": "http://{{domainOS}}/services-order/orders?status=pending"
+                  },
+                  "event": [
+                    {
+                      "listen": "test",
+                      "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                          "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                          "pm.test(\"Solo pending\", () => pm.response.json().forEach(o => pm.expect(o.status).to.eql(\"pending\")));"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "local - inventory caído",
+          "description": "Requiere detener service-inventory (docker compose stop service-inventory, o parar la app). Order sigue arriba.",
+          "item": [
+            {
+              "name": "save order (inventory caído)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "http://{{domainOS}}/services-order/orders",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"codeProduct\":\"AC-1550\",\"quantity\":1}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                      "pm.collectionVariables.set(\"orderIdPendiente\", pm.response.json().id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "confirm order con inventory caído",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "http://{{domainOS}}/services-order/orders/{{orderIdPendiente}}",
+                "description": "Con service-inventory detenido: 503 + Retry-After y la orden sigue pending. Repetirla varias veces abre el circuito (actuator/circuitbreakers → OPEN); al levantar Inventory y pasar INVENTORY_CB_WAIT, responde 200."
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"HTTP 503\", () => pm.response.to.have.status(503));",
+                      "pm.test(\"ProblemDetail inventory-unavailable\", () => pm.expect(pm.response.json().type).to.eql(\"https://codearti.com/problems/inventory-unavailable\"));",
+                      "pm.test(\"Retry-After\", () => pm.response.to.have.header(\"Retry-After\"));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "get order sigue pendiente",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "http://{{domainOS}}/services-order/orders/{{orderIdPendiente}}"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Sigue pending\", () => pm.expect(pm.response.json().status).to.eql(\"pending\"));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
         }
       ]
     }
