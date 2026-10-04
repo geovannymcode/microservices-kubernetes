@@ -56,4 +56,19 @@ final class StockConcurrencyIT {
         client.get().uri(PATH + "/" + code).exchange().expectStatus().isOk()
                 .expectBody().jsonPath("$.stock").isEqualTo(0);
     }
+    @Test void twentyConcurrentRetriesWithTheSameIdempotencyKeyDecreaseOnce() {
+        String code = "RETRY-" + UUID.randomUUID().toString().toUpperCase();
+        client.post().uri(PATH).bodyValue(new InventoryRequest(code, "Reintentos", new BigDecimal("1.00"), 10))
+                .exchange().expectStatus().isCreated();
+        // 100 characters with "." and ":" also proves V5 widened stock_movements.idempotency_key.
+        String key = ("order:" + UUID.randomUUID() + ".retry").concat("x".repeat(100)).substring(0, 100);
+        var statuses = Flux.range(0, 20).flatMap(ignored -> concurrentClient.put().uri(PATH + "/" + code)
+                .header("Idempotency-Key", key).bodyValue(new OrderInvRequest(1))
+                .exchangeToMono(response -> response.releaseBody().thenReturn(response.statusCode().value())), 20)
+                .collectList();
+        StepVerifier.create(statuses).assertNext(codes -> assertThat(codes).hasSize(20).containsOnly(200))
+                .expectComplete().verify(Duration.ofSeconds(30));
+        client.get().uri(PATH + "/" + code).exchange().expectStatus().isOk()
+                .expectBody().jsonPath("$.stock").isEqualTo(9);
+    }
 }

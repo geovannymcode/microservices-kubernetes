@@ -103,6 +103,18 @@ final class InventoryControllerTest {
                 .jsonPath("$.errors[0].field").isEqualTo("idempotencyKey");
         verifyNoInteractions(service);
     }
+    @Test void acceptsDotsColonsAndUpTo100CharactersInIdempotencyKey() {
+        String longest = "order:" + "a.b_c-1".repeat(13) + "123";
+        assertThat(longest).hasSize(100);
+        for (String key : new String[]{"order:2026.10.03_1", longest}) {
+            when(service.decreaseStock("PRD-1", 1, key)).thenReturn(Mono.just(FIRST));
+            client.put().uri(PATH + "/PRD-1").header("Idempotency-Key", key).bodyValue(new OrderInvRequest(1))
+                    .exchange().expectStatus().isOk();
+        }
+        assertProblem(client.put().uri(PATH + "/PRD-1").header("Idempotency-Key", longest + "x")
+                .bodyValue(new OrderInvRequest(1)).exchange(), 400, "validation-error", "Solicitud inválida")
+                .jsonPath("$.errors[0].field").isEqualTo("idempotencyKey");
+    }
     @Test void reportsReusedIdempotencyKey() {
         when(service.decreaseStock("PRD-1", 1, "order-9")).thenReturn(Mono.error(new IdempotencyKeyReusedException("order-9")));
         assertProblem(client.put().uri(PATH + "/PRD-1").header("Idempotency-Key", "order-9")

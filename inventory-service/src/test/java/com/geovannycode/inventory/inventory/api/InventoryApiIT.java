@@ -253,7 +253,7 @@ final class InventoryApiIT {
     void exposesSwaggerAndOpenApiUnderServicePrefix() {
         client.get().uri("/services-inventory/swagger-ui.html").exchange().expectStatus().is3xxRedirection();
         client.get().uri("/services-inventory/v3/api-docs").exchange().expectStatus().isOk()
-                .expectBody().jsonPath("$.info.version").isEqualTo("2.0.0")
+                .expectBody().jsonPath("$.info.version").isEqualTo("2.1.0")
                 .jsonPath("$.servers[0].url").isEqualTo("/services-inventory")
                 .jsonPath("$.paths['/inventories'].post.responses['201']").exists()
                 .jsonPath("$.paths['/inventories/{productId}'].put.responses['409']").exists();
