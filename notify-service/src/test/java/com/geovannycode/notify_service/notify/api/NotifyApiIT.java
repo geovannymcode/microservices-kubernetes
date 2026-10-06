@@ -39,7 +39,7 @@ final class NotifyApiIT {
 
     @Autowired
     NotifyApiIT(@Value("${local.server.port}") int port, NotificationRepository repository) {
-        this.client = WebTestClient.bindToServer().baseUrl("http://localhost:" + port).responseTimeout(TIMEOUT).build();
+        this.client = WebTestClient.bindToServer().baseUrl("http://127.0.0.1:" + port).responseTimeout(TIMEOUT).build();
         this.repository = repository;
     }
 

@@ -28,17 +28,13 @@ spec:
         - name: create-topics
           image: apache/kafka@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837
           command:
-            - /opt/kafka/bin/kafka-topics.sh
-            - --bootstrap-server
-            - kafka:9092
-            - --create
-            - --if-not-exists
-            - --topic
-            - orders.events.v1
-            - --partitions
-            - "3"
-            - --replication-factor
-            - "1"
+            - /bin/sh
+            - -ec
+            - |
+              for topic in orders.events.v1 orders.events.v1.dlt; do
+                /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create \
+                  --if-not-exists --topic "$topic" --partitions 3 --replication-factor 1
+              done
           resources:
             requests:
               cpu: 100m

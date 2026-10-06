@@ -5,3 +5,7 @@ Importa `services-inventory.postman_collection.json` y configura `baseUrl` (por 
 Esta es una colección nueva: la colección original del curso no estaba en el workspace. Por tanto, quedan pendientes de aplicar sobre el original la corrección de `Notify → readiness` y el traslado de requests `circuitbreakers` de Inventory a Order. La colección nueva ya tiene readiness bajo Inventory y no incluye circuitbreakers de Order.
 
 Los headers `x-api-key` usan `{{apiKey}}` y están deshabilitados por defecto: este servicio aún no exige autenticación. Guarda la clave únicamente en un valor local o secreto de Postman. Si la colección original contiene claves reales, deben revocarse/rotarse en su proveedor; sustituir el texto por una variable no revoca una clave expuesta. No se encontró ninguna clave real en los archivos disponibles.
+
+Notify Kubernetes: importa `notify-k8s.postman_environment.json` y ejecuta **Notify Service / k8s**.
+`domainNSk8s` usa host:puerto sin protocolo (por defecto localhost:30082).
+`get all notify` guarda `notifyId` y `orderId` para los requests siguientes; primero genera una notificación con la demo de flujo.

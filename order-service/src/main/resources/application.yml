@@ -111,6 +111,16 @@ management:
       export:
         otlp:
           endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+  # Logs by OTLP only where a collector exists: OTEL_LOGS_EXPORTER=otlp (Compose, Kubernetes) overrides this.
+  # Locally there is none, and a failing log exporter would log its own failures.
+  logging:
+    export:
+      otlp:
+        enabled: false
 
 outbox:
   topic: orders.events.v1

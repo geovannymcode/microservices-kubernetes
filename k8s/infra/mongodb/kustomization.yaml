@@ -1,0 +1,15 @@
+# Development only; managed MongoDB replaces this in AWS.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: geovannycode
+resources: [statefulset.yaml, service.yaml, networkpolicy.yaml]
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: geovannycode-shop
+    includeTemplates: true
+secretGenerator:
+  - name: mongodb-credentials
+    envs: [.env]
+configMapGenerator:
+  - name: mongodb-init
+    files: [mongo-init.js]

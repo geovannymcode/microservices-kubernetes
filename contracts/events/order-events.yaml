@@ -97,6 +97,7 @@ components:
               codeProduct: AC-1550
               quantity: 2
               status: completed
+              cancelReason: null
 
     OrderCanceled:
       name: OrderCanceled
@@ -117,6 +118,8 @@ components:
                 properties:
                   status:
                     const: canceled
+                  cancelReason:
+                    type: string
       bindings:
         kafka:
           key:
@@ -199,6 +202,8 @@ components:
           type: string
           enum: [completed, canceled]
         cancelReason:
-          type: string
-          enum: [PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK]
-          description: Solo presente cuando status es canceled.
+          type: [string, 'null']
+          enum: [PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK, null]
+          description: >-
+            Motivo de la cancelación. En OrderCanceled siempre tiene valor; en OrderCompleted Order lo publica
+            como null.

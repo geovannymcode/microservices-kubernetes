@@ -10,3 +10,5 @@ resources:
   - ../../infra/kafka
   - ../../inventory/overlays/minikube
   - ../../order/overlays/minikube
+  - ../../infra/mongodb
+  - ../../notify/overlays/minikube

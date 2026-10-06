@@ -1,0 +1,17 @@
+# In-cluster DNS: http://service-notify.geovannycode.svc.cluster.local/services-notify
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-notify
+  labels:
+    app.kubernetes.io/name: service-notify
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: service-notify
+    app.kubernetes.io/component: api
+  ports:
+    - name: http   # Istio infers the protocol from the port name.
+      port: 80
+      targetPort: http
+      protocol: TCP

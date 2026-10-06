@@ -247,12 +247,11 @@ http put /orders/{orderId}                         service-order     SERVER
 
 Los perfiles `docker` y `k8s` escriben JSON ECS con `trace.id` y `span.id`, igual que Inventory. El mismo `trace.id` aparece en los logs de los dos servicios para una petición.
 
+Además, `OpenTelemetryLogsConfiguration` conecta Logback al SDK de OpenTelemetry (`opentelemetry-logback-appender-1.0`, sin `logback-spring.xml`), y con `OTEL_LOGS_EXPORTER=otlp` los logs salen por OTLP hacia Loki con su traza. Compose y Kubernetes lo activan; en local queda apagado (`management.logging.export.otlp.enabled=false`), porque no hay colector.
+
 ### Stack local y dashboard
 
-El profile `observability` de Compose levanta `grafana/otel-lgtm`. El `prometheus.yaml` que se monta (`observability/prometheus/prometheus.yaml`) es el de la imagen más dos scrapes cada 5 s:
-
-- Order en el host: `host.docker.internal:8081`.
-- Inventory en la red de Compose.
+El profile `observability` de Compose levanta `grafana/otel-lgtm` (con credenciales de `.env`) y `kafka-exporter`. El `prometheus.yaml` que se monta (`observability/prometheus/prometheus.yaml`) es el de la imagen más un scrape cada 5 s de cada servicio por su nombre en Compose (`service-inventory:8080`, `service-order:8081`, `service-notify:8082`) y del exportador. Ya no hay target `host.docker.internal`: para ver Order en Grafana tiene que correr en Compose.
 
 Grafana provisiona [`observability/dashboards/order-resilience.json`](../observability/dashboards/order-resilience.json), en la carpeta geovannycode, con estos paneles:
 
@@ -265,10 +264,7 @@ Grafana provisiona [`observability/dashboards/order-resilience.json`](../observa
 - eventos pendientes en la outbox.
 
 ```sh
-docker compose --profile observability up -d otel-lgtm
-docker compose up -d postgresql kafka service-inventory      # Inventory en INVENTORY_PORT (8080 por defecto)
-cd order-service && set -a; . ./.env; set +a
-INVENTORY_CB_WAIT=15s ./mvnw spring-boot:run -Dspring-boot.run.profiles=docker   # logs JSON; DB_HOST viene de .env
+INVENTORY_CB_WAIT=15s make up-observability      # desde la raíz: los tres servicios y el stack
 ```
 
 **Demo del circuito**, con el dashboard abierto en <http://localhost:3000> (Dashboards → geovannycode → *Order — Resiliencia hacia Inventory*):

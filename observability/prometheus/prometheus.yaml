@@ -37,18 +37,27 @@ storage:
   tsdb:
     # A 10min time window is enough because it can easily absorb retries and network delays.
     out_of_order_time_window: 10m
-# Same model as Kubernetes: Prometheus pulls /actuator/prometheus. 5s so the dashboard shows the short
-# HALF_OPEN window of the circuit breaker.
+# Same model as Kubernetes: Prometheus pulls /actuator/prometheus from each service by its Compose name, on the
+# shared network (never host.docker.internal: a service run on the host with spring-boot:run is not scraped).
+# 5s so the dashboards show short windows such as the circuit breaker's HALF_OPEN state.
 scrape_configs:
-  - job_name: service-order
-    scrape_interval: 5s
-    metrics_path: /services-order/actuator/prometheus
-    static_configs:
-      # service-order:8081 when it runs in Compose; host.docker.internal:8081 when it runs on the host
-      # (spring-boot:run). Only one of them is up at a time; the dashboard filters by application, not target.
-      - targets: ["service-order:8081", "host.docker.internal:8081"]
   - job_name: service-inventory
     scrape_interval: 5s
     metrics_path: /services-inventory/actuator/prometheus
     static_configs:
       - targets: ["service-inventory:8080"]
+  - job_name: service-order
+    scrape_interval: 5s
+    metrics_path: /services-order/actuator/prometheus
+    static_configs:
+      - targets: ["service-order:8081"]
+  - job_name: service-notify
+    scrape_interval: 5s
+    metrics_path: /services-notify/actuator/prometheus
+    static_configs:
+      - targets: ["service-notify:8082"]
+  # Consumer group lag from the broker (kafka_consumergroup_lag), also while the consumer is down.
+  - job_name: kafka-exporter
+    scrape_interval: 5s
+    static_configs:
+      - targets: ["kafka-exporter:9308"]

@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: geovannycode
+resources:
+  - deployment.yaml
+  - service.yaml
+  - serviceaccount.yaml
+  - pdb.yaml
+  - hpa.yaml
+  - networkpolicy.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: geovannycode-shop
+    includeTemplates: true
+configMapGenerator:
+  - name: service-notify-config
+    envs: [config.env]
+# Each environment supplies service-notify-secrets from an ignored .env.

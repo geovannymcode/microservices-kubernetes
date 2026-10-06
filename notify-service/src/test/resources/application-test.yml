@@ -3,3 +3,9 @@ notify:
   retry:
     initial-interval: 100ms
     max-interval: 400ms
+
+# Random port bound to loopback only, and the tests call 127.0.0.1 (not localhost). With a wildcard bind, macOS lets
+# another process already listening on 127.0.0.1 with the same port (an IDE helper, a port-forward) keep it, and
+# requests to localhost reach that process instead of this server (seen as a random 401).
+server:
+  address: 127.0.0.1

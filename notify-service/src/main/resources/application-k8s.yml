@@ -1,0 +1,32 @@
+# MONGO_*, KAFKA_BOOTSTRAP_SERVERS and OTEL_* come from the ConfigMap and the Secret (application.yml resolves them).
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        version: @project.version@
+        environment: k8s
+    json:
+      rename:
+        traceId: trace.id
+        spanId: span.id
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 45s
+  kafka:
+    admin:
+      auto-create: false
+    consumer:
+      # Finish only the current record on shutdown; a large poll batch could exceed the grace period.
+      max-poll-records: 1
+      properties:
+        allow.auto.create.topics: false
+        default.api.timeout.ms: 10000
+    listener:
+      poll-timeout: 1s
+      immediate-stop: true
+
+notify:
+  shutdown-timeout: 40s

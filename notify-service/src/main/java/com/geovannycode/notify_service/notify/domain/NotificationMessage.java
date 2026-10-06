@@ -1,5 +1,11 @@
 package com.geovannycode.notify_service.notify.domain;
 
-/** What a channel delivers: the text plus the identifiers a channel may need (webhook payload, logs). */
-public record NotificationMessage(String eventId, long orderId, String message) {
+import java.time.Instant;
+
+import org.jspecify.annotations.Nullable;
+
+/** What a channel delivers: the text plus the order data a channel may forward (webhook payload, logs). */
+public record NotificationMessage(String notificationId, String eventId, String eventType, long orderId,
+                                  String codeProduct, int quantity, @Nullable String cancelReason, String message,
+                                  Instant createdAt) {
 }

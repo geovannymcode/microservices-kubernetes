@@ -1,26 +1,33 @@
 # Run from the course root.
-# Docker Compose (both services, their databases and Kafka):
+# Docker Compose (the three services, their databases and Kafka):
 #   make up                              # build and start; waits until every service is healthy
-#   make logs                            # follow service-order and service-inventory
+#   make up-observability                # the same plus Grafana/Loki/Tempo/Prometheus and kafka-exporter
+#   make logs                            # follow service-order, service-inventory and service-notify
 #   make demo-circuit-breaker            # Inventory down -> circuit OPEN -> recovered
+#   make demo-flow                       # product -> order confirmed -> notification sent
+#   make demo-dlt                        # invalid message -> orders.events.v1.dlt
+#   make demo-lag                        # service-notify stopped -> lag grows -> started -> lag 0
 #   make down                            # stop and remove containers (volumes stay)
-# Local Kubernetes (infra + Inventory + Order in namespace geovannycode):
+# Local Kubernetes (infra + Inventory + Order + Notification in namespace geovannycode):
 #   make k8s-up                          # minikube (default)
 #   make k8s-up CLUSTER=docker-desktop   # Kubernetes built into Docker Desktop
 #   make k8s-validate k8s-lint           # server-side dry run, kubeconform and kube-linter
 CLUSTER    ?= minikube
 NAMESPACE  := geovannycode
 INVENTORY_IMAGE := geovannycode/service-inventory:0.0.1-SNAPSHOT
+NOTIFY_IMAGE    := geovannycode/service-notify:0.0.1-SNAPSHOT
 ORDER_IMAGE     := geovannycode/service-order:0.0.1-SNAPSHOT
 KUBECTL    := kubectl --context $(CLUSTER)
 MYSQL_ENV     := k8s/infra/mysql/.env
 POSTGRES_ENV  := k8s/infra/postgres/.env
 INVENTORY_ENV := k8s/inventory/overlays/minikube/.env
+MONGODB_ENV   := k8s/infra/mongodb/.env
+NOTIFY_ENV    := k8s/notify/overlays/minikube/.env
 ORDER_ENV     := k8s/order/overlays/minikube/.env
 KUBECONFORM := ghcr.io/yannh/kubeconform:v0.8.0@sha256:faffaf43f95aa6425306e1ab8d6fcad72acb9049158f38e574c085ea1ec0f64e
 KUBE_LINTER := stackrox/kube-linter:v0.8.3@sha256:f2bfce7879206d32f69ab6572c376f916643f54ca291ac38cf7d01ef591ff3f9
 
-.PHONY: up down logs demo-circuit-breaker
+.PHONY: up up-observability down logs demo-circuit-breaker demo-flow demo-dlt demo-lag
 
 # The root .env (MySQL) and order-service/.env (PostgreSQL) share DB_* names, and Compose gives shell variables
 # precedence over .env: a terminal that sourced order-service/.env would recreate MySQL with Order's port,
@@ -30,18 +37,32 @@ COMPOSE := env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASSWORD docker
 up: .env
 	$(COMPOSE) up -d --build --wait
 
+# Grafana at http://localhost:3000 (GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD from .env).
+up-observability: .env
+	$(COMPOSE) --profile observability up -d --build --wait
+
+# With every profile, so Grafana, kafka-exporter and the tools containers stop too.
 down:
-	$(COMPOSE) down
+	$(COMPOSE) --profile observability --profile tools down
 
 logs:
-	$(COMPOSE) logs -f service-order service-inventory
+	$(COMPOSE) logs -f service-order service-inventory service-notify
 
 demo-circuit-breaker:
 	./scripts/demo-circuit-breaker.sh
 
+demo-flow:
+	./scripts/demo-flow.sh
+
+demo-dlt:
+	./scripts/demo-dlt.sh
+
+demo-lag:
+	./scripts/demo-lag.sh
+
 .PHONY: k8s-up k8s-cluster k8s-secrets k8s-images k8s-namespace k8s-infra k8s-migrate k8s-apps k8s-validate k8s-lint k8s-url k8s-load k8s-down k8s-purge
 
-# Order of a fresh deploy: infra (databases, Kafka) -> topic -> Order's migration Job -> both services.
+# Fresh deploy: databases/Kafka -> topics -> Order migration -> all three services.
 k8s-up: k8s-secrets k8s-cluster k8s-images k8s-namespace k8s-infra k8s-migrate k8s-apps
 	$(MAKE) k8s-url
 
@@ -56,7 +77,7 @@ endif
 
 # Derives the git-ignored secret files from the root .env (docker compose uses the same values).
 # File targets: they are regenerated whenever the root .env is newer, so a password change reaches K8s.
-k8s-secrets: $(MYSQL_ENV) $(POSTGRES_ENV) $(INVENTORY_ENV) $(ORDER_ENV)
+k8s-secrets: $(MYSQL_ENV) $(POSTGRES_ENV) $(INVENTORY_ENV) $(ORDER_ENV) $(MONGODB_ENV) $(NOTIFY_ENV)
 
 .env:
 	@echo "Falta .env en la raíz: cp .env.example .env y completa las contraseñas"; exit 1
@@ -83,15 +104,31 @@ $(ORDER_ENV): .env
 		printf 'DB_USER=%s\nDB_PASSWORD=%s\n' "$${POSTGRES_USER:-order}" "$$POSTGRES_PASSWORD" > $@
 	@echo "Generado $@"
 
+$(MONGODB_ENV): .env
+	@umask 077; set -a; . ./.env; set +a; \
+		: "$${MONGO_INITDB_ROOT_PASSWORD:?Falta MONGO_INITDB_ROOT_PASSWORD}" "$${MONGO_PASSWORD:?Falta MONGO_PASSWORD}"; \
+		printf 'MONGO_INITDB_ROOT_USERNAME=%s\nMONGO_INITDB_ROOT_PASSWORD=%s\nMONGO_DB=%s\nMONGO_USER=%s\nMONGO_PASSWORD=%s\n' \
+		"$${MONGO_INITDB_ROOT_USERNAME:-root}" "$$MONGO_INITDB_ROOT_PASSWORD" "$${MONGO_DB:-db_notify}" "$${MONGO_USER:-notify}" "$$MONGO_PASSWORD" > $@
+	@echo "Generado $@ (el init solo crea usuarios con un PVC vacío)"
+
+$(NOTIFY_ENV): .env
+	@umask 077; set -a; . ./.env; set +a; \
+		: "$${MONGO_PASSWORD:?Falta MONGO_PASSWORD}"; \
+		printf 'MONGO_USER=%s\nMONGO_PASSWORD=%s\nNOTIFY_WEBHOOK_URL=%s\nNOTIFY_WEBHOOK_SECRET=%s\n' \
+		"$${MONGO_USER:-notify}" "$$MONGO_PASSWORD" "$${NOTIFY_WEBHOOK_URL:-}" "$${NOTIFY_WEBHOOK_SECRET:-}" > $@
+	@echo "Generado $@"
+
 # imagePullPolicy is Never: the images must already be in the node's image store.
 k8s-images:
 ifeq ($(CLUSTER),minikube)
 	eval $$(minikube docker-env) && \
 		docker build --build-context contracts=contracts -t $(INVENTORY_IMAGE) inventory-service && \
-		docker build --build-context contracts=contracts -t $(ORDER_IMAGE) order-service
+		docker build --build-context contracts=contracts -t $(ORDER_IMAGE) order-service && \
+		docker build --build-context contracts=contracts -t $(NOTIFY_IMAGE) notify-service
 else
 	docker build --build-context contracts=contracts -t $(INVENTORY_IMAGE) inventory-service
 	docker build --build-context contracts=contracts -t $(ORDER_IMAGE) order-service
+	docker build --build-context contracts=contracts -t $(NOTIFY_IMAGE) notify-service
 endif
 
 # Kept out of every other kustomization so deleting the apps never deletes the namespace (and the databases).
@@ -101,9 +138,11 @@ k8s-namespace:
 # Jobs are immutable: the previous run is deleted so the apply can recreate it (both Jobs are idempotent).
 k8s-infra:
 	$(KUBECTL) apply -k k8s/infra/mysql
+	$(KUBECTL) apply -k k8s/infra/mongodb
 	$(KUBECTL) apply -k k8s/infra/postgres
 	$(KUBECTL) delete job kafka-topics -n $(NAMESPACE) --ignore-not-found
 	$(KUBECTL) apply -k k8s/infra/kafka
+	$(KUBECTL) rollout status statefulset/mongodb -n $(NAMESPACE) --timeout=300s
 	$(KUBECTL) rollout status statefulset/mysql -n $(NAMESPACE) --timeout=180s
 	$(KUBECTL) rollout status statefulset/postgres -n $(NAMESPACE) --timeout=180s
 	$(KUBECTL) rollout status statefulset/kafka -n $(NAMESPACE) --timeout=180s
@@ -120,10 +159,12 @@ k8s-migrate:
 k8s-apps:
 	$(KUBECTL) apply -k k8s/inventory/overlays/minikube
 	$(KUBECTL) apply -k k8s/order/overlays/minikube
+	$(KUBECTL) apply -k k8s/notify/overlays/minikube
 	@# Same tag + imagePullPolicy Never: an unchanged Deployment would keep running the previous build.
-	$(KUBECTL) rollout restart deployment/service-inventory deployment/service-order -n $(NAMESPACE)
+	$(KUBECTL) rollout restart deployment/service-inventory deployment/service-order deployment/service-notify -n $(NAMESPACE)
 	$(KUBECTL) rollout status deployment/service-inventory -n $(NAMESPACE) --timeout=180s
 	$(KUBECTL) rollout status deployment/service-order -n $(NAMESPACE) --timeout=180s
+	$(KUBECTL) rollout status deployment/service-notify -n $(NAMESPACE) --timeout=180s
 
 k8s-validate: k8s-secrets k8s-namespace
 	$(KUBECTL) apply -k k8s/overlays/minikube --dry-run=server
@@ -137,9 +178,11 @@ k8s-lint: k8s-secrets
 k8s-url:
 ifeq ($(CLUSTER),minikube)
 	@echo "minikube service service-inventory -n $(NAMESPACE) --url   # domainISk8s"
+	@echo "minikube service service-notify -n $(NAMESPACE) --url      # domainNSk8s"
 	@echo "minikube service service-order -n $(NAMESPACE) --url       # domainOSk8s"
 else
 	@echo "domainISk8s = http://localhost:$$($(KUBECTL) get service service-inventory -n $(NAMESPACE) -o jsonpath='{.spec.ports[0].nodePort}')"
+	@echo "domainNSk8s = http://localhost:$$($(KUBECTL) get service service-notify -n $(NAMESPACE) -o jsonpath='{.spec.ports[0].nodePort}')"
 	@echo "domainOSk8s = http://localhost:$$($(KUBECTL) get service service-order -n $(NAMESPACE) -o jsonpath='{.spec.ports[0].nodePort}')"
 endif
 
@@ -150,9 +193,14 @@ k8s-load:
 
 # Removes the services only; databases, Kafka and their data stay.
 k8s-down:
+	$(KUBECTL) delete -k k8s/notify/overlays/minikube --ignore-not-found
 	$(KUBECTL) delete -k k8s/order/overlays/minikube --ignore-not-found
 	$(KUBECTL) delete -k k8s/inventory/overlays/minikube --ignore-not-found
 
 # Destroys everything in the namespace, including the MySQL, PostgreSQL and Kafka volumes.
 k8s-purge:
 	$(KUBECTL) delete namespace $(NAMESPACE) --ignore-not-found
+
+.PHONY: demo-notify-k8s-flow demo-notify-k8s-outage demo-notify-k8s-rebalance demo-notify-k8s-mongo
+demo-notify-k8s-flow demo-notify-k8s-outage demo-notify-k8s-rebalance demo-notify-k8s-mongo:
+	CLUSTER=$(CLUSTER) python3 scripts/demo-notify-k8s.py $(patsubst demo-notify-k8s-%,%,$@)

@@ -5,6 +5,10 @@ spring:
     base-path: /services-notify
   lifecycle:
     timeout-per-shutdown-phase: 20s
+  reactor:
+    # Restores the Micrometer observation (trace.id in MDC, parent of the MongoDB and webhook spans) and the
+    # eventId/orderId MDC keys on every Reactor thread hop, including the chain the listener waits for.
+    context-propagation: auto
   # Boot 4 moved the connection settings from spring.data.mongodb.* (deprecated, level error) to spring.mongodb.*;
   # spring.data.mongodb.* keeps only Spring Data options (auto-index-creation, field naming...).
   mongodb:
@@ -38,6 +42,9 @@ spring:
       # Offset committed after each record is processed (stored and delivered), never before.
       ack-mode: record
       concurrency: ${NOTIFY_CONSUMER_CONCURRENCY:3}
+      # Consumer span per record, child of the traceparent Order's producer injected (same trace as the PUT),
+      # plus the spring.kafka.listener timer.
+      observation-enabled: true
     admin:
       # Topic creation (local/docker/test) must not hold startup for long when Kafka is down.
       operation-timeout: 5s
@@ -56,10 +63,17 @@ notify:
     multiplier: 2
     max-interval: 4s
 
+# Validated at startup (NotificationSenderProperties): type=webhook without a URL stops the application.
 notification:
   sender:
-    # log (default) | webhook (phase 6)
+    # log (default) | webhook
     type: ${NOTIFICATION_SENDER_TYPE:log}
+    webhook:
+      url: ${NOTIFY_WEBHOOK_URL:}
+      connect-timeout: 1s
+      response-timeout: 3s
+      # Optional: signs each body (X-Signature, hex HMAC-SHA256). Environment variable only, never committed.
+      secret: ${NOTIFY_WEBHOOK_SECRET:}
 
 server:
   port: 8082
@@ -69,17 +83,52 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,metrics
   endpoint:
     health:
+      show-details: when-authorized
+      show-components: always
       probes:
         enabled: true
       group:
         liveness:
           include: livenessState
         # mongoIndexes (MongoIndexInitializer): no traffic before the unique eventId index exists.
+        # Kafka is deliberately absent: with Kafka down the query API keeps serving and the consumer reconnects
+        # on its own; restarting or unrouting the pod would not bring Kafka back.
         readiness:
           include: readinessState,mongo,mongoIndexes
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+        "[notifications.delivery]": true
+        "[spring.kafka.listener]": true
+  # Prometheus scrapes /actuator/prometheus; OTLP push stays off unless OTEL_METRICS_EXPORTER=otlp.
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+  # Logs by OTLP only where a collector exists: OTEL_LOGS_EXPORTER=otlp (Compose, Kubernetes) overrides this.
+  # Locally there is none, and a failing log exporter would log its own failures.
+  logging:
+    export:
+      otlp:
+        enabled: false
 
 # Swagger UI shows the static contract copied into the jar at build time, not a reflection-generated spec.
 # springdoc needs api-docs enabled for the UI (it serves /v3/api-docs/swagger-config), so the reflection

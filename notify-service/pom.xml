@@ -15,7 +15,16 @@
     <description>Microservicio reactivo de notificaciones del curso de arquitectura de microservicios.</description>
     <properties>
         <java.version>25</java.version>
+        <!-- Security updates over the Jackson versions managed by Boot 4.1.1 (same overrides as Order and Inventory;
+             springdoc/swagger-core pull Jackson 2). -->
+        <jackson-bom.version>3.1.7</jackson-bom.version>
+        <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
         <mapstruct.version>1.6.3</mapstruct.version>
+        <wiremock.version>3.13.2</wiremock.version>
+        <json-schema-validator.version>3.0.8</json-schema-validator.version>
+        <archunit.version>1.4.1</archunit.version>
+        <!-- Not managed by Boot. 2.28.x is the release built on OpenTelemetry API 1.62, the version Boot 4.1.1 manages. -->
+        <opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
     </properties>
     <dependencies>
         <dependency>
@@ -36,9 +45,31 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
         <dependency>
+            <!-- Micrometer Tracing over the OpenTelemetry SDK with OTLP export (Boot 4 starter, no Java agent). -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <!-- Bridges Logback to the OpenTelemetry SDK so logs leave by OTLP with their trace context
+                 (OpenTelemetryLogsConfiguration attaches it; no logback-spring.xml). -->
+            <groupId>io.opentelemetry.instrumentation</groupId>
+            <artifactId>opentelemetry-logback-appender-1.0</artifactId>
+            <version>${opentelemetry-logback-appender.version}</version>
+        </dependency>
+        <dependency>
             <!-- Plain spring-kafka (@KafkaListener on the consumer thread): Reactor Kafka is discontinued (ADR 0007). -->
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-kafka</artifactId>
+        </dependency>
+        <dependency>
+            <!-- WebClient.Builder auto-configuration (out of the webflux starter since Boot 4), for the webhook channel. -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webclient</artifactId>
         </dependency>
         <dependency>
             <groupId>org.mapstruct</groupId>
@@ -60,6 +91,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -93,6 +129,27 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- Plays the webhook receiver (same library as order-service). -->
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>${wiremock.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Validates the test events against the payload schema of contracts/events/order-events.yaml.
+                 3.x is the line built on Jackson 3 (tools.jackson), the same Jackson as the application. -->
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>${json-schema-validator.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <!-- Waits for the asynchronous consumer (documents in Mongo, records in the DLT) without Thread.sleep. -->
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
@@ -104,6 +161,59 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>build-info</id>
+                        <goals><goal>build-info</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <configuration>
+                    <!-- The course workspace may not be a Git checkout; /actuator/info then omits the git section. -->
+                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                    <verbose>false</verbose>
+                    <excludeProperties>
+                        <excludeProperty>git.build.host</excludeProperty>
+                        <excludeProperty>git.build.user.*</excludeProperty>
+                        <excludeProperty>git.commit.user.*</excludeProperty>
+                    </excludeProperties>
+                </configuration>
+            </plugin>
+            <plugin>
+                <!-- One report for unit and integration tests: prepare-agent sets argLine for surefire and failsafe. -->
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.15</version>
+                <configuration>
+                    <excludes>
+                        <exclude>com/geovannycode/notify_service/generated/**</exclude>
+                        <exclude>**/NotifyServiceApplication.class</exclude>
+                        <!-- Records without logic (only their components). -->
+                        <exclude>**/notify/domain/NotificationMessage.class</exclude>
+                        <exclude>**/notify/domain/OrderEvent.class</exclude>
+                        <exclude>**/notify/domain/OrderEvent$Data.class</exclude>
+                        <exclude>**/NotifyKafkaProperties.class</exclude>
+                        <exclude>**/NotifyKafkaProperties$Retry.class</exclude>
+                        <exclude>**/GlobalExceptionHandler$ValidationError.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution><goals><goal>prepare-agent</goal></goals></execution>
+                    <execution>
+                        <id>coverage-report-and-check</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal><goal>check</goal></goals>
+                        <configuration>
+                            <rules><rule><element>BUNDLE</element><limits>
+                                <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>0.80</minimum></limit>
+                                <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.70</minimum></limit>
+                            </limits></rule></rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <!-- Same generator version and options as order-service (ADR 0003). -->
@@ -200,6 +310,8 @@
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <configuration>
                     <includes><include>**/*IT.java</include></includes>
+                    <!-- Needs the service-inventory and service-order images and seven containers: only with -Psystem-tests. -->
+                    <excludes><exclude>**/*SystemIT.java</exclude></excludes>
                 </configuration>
                 <executions>
                     <execution>
@@ -234,4 +346,21 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <!-- ./mvnw verify -Psystem-tests: the normal suite plus Order to Notification with the three real services. -->
+            <id>system-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <excludes combine.self="override"/>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

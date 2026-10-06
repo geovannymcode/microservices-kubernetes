@@ -1,0 +1,15 @@
+# maxUnavailable 1 never blocks a node drain with a single replica; the eks overlay tightens it.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: service-notify
+  labels:
+    app.kubernetes.io/name: service-notify
+spec:
+  maxUnavailable: 1
+  # A crash-looping pod must not block node drains.
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: service-notify
+      app.kubernetes.io/component: api

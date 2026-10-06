@@ -1,0 +1,21 @@
+# Only what differs inside Compose: service hostnames on the network and ECS JSON logs.
+spring:
+  mongodb:
+    host: ${MONGO_HOST:mongodb}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:19092}
+
+logging:
+  structured:
+    format:
+      console: ecs
+    ecs:
+      service:
+        version: @project.version@
+        environment: docker
+    json:
+      # ECS names for the Micrometer MDC keys so Loki/Kibana correlate logs with Tempo/Jaeger traces.
+      # eventId and orderId (MDC, set by OrderEventListener) are written as top-level fields as they are.
+      rename:
+        traceId: trace.id
+        spanId: span.id

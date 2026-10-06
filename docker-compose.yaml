@@ -18,7 +18,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     networks:
-      - inventory
+      - backend
 
   # Order Service database. POSTGRES_DB creates the database; Liquibase (in the app) creates the tables.
   postgresql:
@@ -39,7 +39,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
-      - inventory
+      - backend
 
   # Notification Service database. The root user only initializes it; mongo-init.js creates the application user
   # (readWrite on MONGO_DB) the service connects with. Init scripts run only on an empty mongo-data volume.
@@ -65,7 +65,7 @@ services:
       - mongo-data:/data/db
       - ./notify-service/db-scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     networks:
-      - inventory
+      - backend
 
   # Order events broker: single-node KRaft (broker + controller, no ZooKeeper). Two listeners: EXTERNAL for
   # apps on the host (localhost:9092) and INTERNAL for containers on the network (kafka:19092).
@@ -100,7 +100,7 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
     networks:
-      - inventory
+      - backend
 
   # Web UI for topics and messages: docker compose --profile tools up -d kafka-ui -> http://localhost:8085
   kafka-ui:
@@ -116,7 +116,22 @@ services:
     ports:
       - "127.0.0.1:${KAFKA_UI_PORT:-8085}:8080"
     networks:
-      - inventory
+      - backend
+
+  # Webhook receiver for Notification's webhook channel (local demo): answers 200 and prints every request
+  # (headers and JSON body) to its log. docker compose --profile tools up -d webhook-receiver
+  # NOTIFY_WEBHOOK_URL=http://localhost:8086/notifications for the service on the host (notify-service/.env).
+  # A response status can be forced per request with the header x-set-response-status-code (e.g. 500).
+  webhook-receiver:
+    image: mendhak/http-https-echo:42@sha256:a265f55c86cb3baead76fdf379dc8e9e6440ed121874e101e60b833e05bce8d4
+    container_name: notify-webhook-receiver
+    profiles: ["tools"]
+    environment:
+      HTTP_PORT: 8080
+    ports:
+      - "127.0.0.1:${WEBHOOK_RECEIVER_PORT:-8086}:8080"
+    networks:
+      - backend
 
   # Liquibase CLI over the app's changelog, without installing it: docker compose run --rm liquibase status
   liquibase:
@@ -140,7 +155,7 @@ services:
       - ./order-service/liquibase-env/liquibase.properties:/workspace/liquibase-env/liquibase.properties:ro
       - ./order-service/src/main/resources:/workspace/src/main/resources:ro
     networks:
-      - inventory
+      - backend
 
   service-inventory:
     build:
@@ -161,6 +176,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-lgtm:4318}
       OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-none}
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-otlp}
       TRACING_SAMPLING: ${TRACING_SAMPLING:-1.0}
     ports:
       - "127.0.0.1:${INVENTORY_PORT:-8080}:8080"
@@ -174,7 +190,7 @@ services:
       start_period: 30s
     stop_grace_period: 30s
     networks:
-      - inventory
+      - backend
 
   # Same image strategy as service-inventory (order-service/Dockerfile, ADR 0002): the contracts arrive as a
   # named build context. DB_HOST/DB_PORT are not passed (the root .env holds MySQL's DB_*): the docker profile
@@ -203,6 +219,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-lgtm:4318}
       OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
       OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-none}
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-otlp}
       TRACING_SAMPLING: ${TRACING_SAMPLING:-1.0}
     ports:
       - "127.0.0.1:${ORDER_PORT:-8081}:8081"
@@ -216,7 +233,64 @@ services:
       start_period: 30s
     stop_grace_period: 30s
     networks:
-      - inventory
+      - backend
+
+  # Same image strategy as the other two (notify-service/Dockerfile, ADR 0002). MONGO_HOST/MONGO_PORT are not
+  # passed (the root .env holds the host-side port): the docker profile defaults to mongodb and kafka:19092.
+  service-notify:
+    build:
+      context: ./notify-service
+      additional_contexts:
+        contracts: ./contracts
+    image: geovannycode/service-notify:${NOTIFY_IMAGE_TAG:-0.0.1-SNAPSHOT}
+    container_name: service-notify
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MONGO_DB: ${MONGO_DB:-db_notify}
+      MONGO_USER: ${MONGO_USER:-notify}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:?Define MONGO_PASSWORD en .env}
+      # log by default; webhook needs NOTIFY_WEBHOOK_URL (http://webhook-receiver:8080/notifications with the
+      # tools profile receiver).
+      NOTIFICATION_SENDER_TYPE: ${NOTIFICATION_SENDER_TYPE:-log}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-lgtm:4318}
+      OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
+      OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-none}
+      OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-otlp}
+      TRACING_SAMPLING: ${TRACING_SAMPLING:-1.0}
+    ports:
+      - "127.0.0.1:${NOTIFY_PORT:-8082}:8082"
+    # Readiness (readinessState + mongo + mongoIndexes): Kafka being down does not make Notification unhealthy.
+    healthcheck:
+      test: ["CMD", "java", "-XX:TieredStopAtLevel=1", "-XX:+UseSerialGC", "-Xmx16m", "-cp", "/app/healthcheck",
+             "HealthCheck", "http://localhost:8082/services-notify/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    networks:
+      - backend
+
+  # Consumer group lag as the broker sees it (committed offset vs. end offset), also while Notification is stopped,
+  # when the client-side kafka_consumer_fetch_manager_records_lag has nobody to report it.
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.10.0@sha256:346a53c2489a3530790d01f7b96632496d0d58926662f4c35bb65f569db2ab42
+    container_name: kafka-exporter
+    profiles: ["observability"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    # Kafka 4 dropped the oldest protocol versions; 3.9.0 makes the client use current ones.
+    command: ["--kafka.server=kafka:19092", "--kafka.version=3.9.0", "--group.filter=^service-", "--topic.filter=^orders\\."]
+    networks:
+      - backend
 
   # Grafana + Loki + Tempo + Prometheus + OpenTelemetry Collector in one image (course setup).
   # docker compose --profile observability up -d  ->  Grafana at http://localhost:3000
@@ -228,15 +302,18 @@ services:
       - "127.0.0.1:3000:3000"
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
-    # Prometheus scrapes Order (on the host) and Inventory every 5s; Grafana provisions the course dashboards.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    # Grafana without anonymous admin: the login comes from .env (no fixed admin/admin in any file).
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Define GRAFANA_ADMIN_PASSWORD en .env}
+    # Prometheus scrapes the three services by their Compose name every 5s; Grafana provisions the course dashboards.
     volumes:
       - ./observability/prometheus/prometheus.yaml:/otel-lgtm/prometheus.yaml:ro
       - ./observability/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/geovannycode.yaml:ro
       - ./observability/dashboards:/otel-lgtm/geovannycode-dashboards:ro
     networks:
-      - inventory
+      - backend
 
 volumes:
   mysql-data:
@@ -244,6 +321,8 @@ volumes:
   kafka-data:
   mongo-data:
 
+# A single user-defined network for the whole system: services resolve each other by name (kafka, mongodb,
+# service-order...). Named after its role, not after the first service that used it.
 networks:
-  inventory:
+  backend:
     driver: bridge

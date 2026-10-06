@@ -191,6 +191,7 @@ No se usa `@Observed`: `ObservedAspect` (Micrometer 1.17) solo entiende `Complet
 
 - **Perfil `local`:** formato legible. Boot añade `[traceId-spanId]` a cada línea, o un hueco en blanco cuando no hay petición en curso.
 - **Perfiles `docker` y `k8s`:** JSON ECS 8.11 en stdout, con `service.name`, `service.version`, `service.environment`, `trace.id` y `span.id`. Promtail/Alloy (Loki) o Filebeat (ELK) los recogen de stdout y correlacionan con Tempo/Jaeger por `trace.id`.
+- **OTLP:** `OpenTelemetryLogsConfiguration` conecta Logback al SDK de OpenTelemetry (`opentelemetry-logback-appender-1.0`, sin `logback-spring.xml`). Con `OTEL_LOGS_EXPORTER=otlp` (Compose y Kubernetes) los logs llegan a Loki con su `trace_id`; en local está apagado porque no hay colector.
 - **Datos registrados:** se registran códigos de producto y cantidades, nunca credenciales ni valores de parámetros SQL. Los errores 500 no exponen el mensaje interno al cliente.
 
 ### Stack local (Grafana + Loki + Tempo + Prometheus)
