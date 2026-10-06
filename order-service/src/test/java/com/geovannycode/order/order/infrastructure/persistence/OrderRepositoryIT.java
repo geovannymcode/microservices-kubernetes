@@ -1,6 +1,9 @@
 package com.geovannycode.order.order.infrastructure.persistence;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.geovannycode.order.TestcontainersConfiguration;
 import com.geovannycode.order.config.PersistenceConfiguration;
@@ -14,6 +17,8 @@ import org.springframework.boot.data.r2dbc.test.autoconfigure.DataR2dbcTest;
 import org.springframework.boot.liquibase.autoconfigure.LiquibaseAutoConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.auditing.CurrentDateTimeProvider;
+import org.springframework.data.auditing.ReactiveIsNewAwareAuditingHandler;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.test.context.ActiveProfiles;
 import reactor.core.publisher.Flux;
@@ -56,21 +61,31 @@ final class OrderRepositoryIT {
     }
 
     @Test
-    void updatingIncrementsVersionAndRefreshesUpdatedAt() {
-        var original = repository.save(OrderEntity.pending("AC-1550", 1));
-        StepVerifier.create(original.flatMap(saved -> repository.findById(saved.id())
-                        .flatMap(read -> repository.save(read.complete()))
-                        .flatMap(updated -> repository.findById(updated.id()))
-                        .map(reloaded -> new OrderEntity[]{saved, reloaded})))
-                .assertNext(pair -> {
-                    var saved = pair[0];
-                    var reloaded = pair[1];
-                    assertThat(reloaded.version()).isEqualTo(1L);
-                    assertThat(reloaded.status()).isEqualTo(OrderStatus.COMPLETED);
-                    assertThat(reloaded.updatedAt()).isAfter(saved.updatedAt());
-                    assertThat(reloaded.createdAt()).isEqualTo(saved.createdAt());
-                })
-                .expectComplete().verify(TIMEOUT);
+    void updatingIncrementsVersionAndRefreshesUpdatedAt(
+            @Autowired ReactiveIsNewAwareAuditingHandler auditingHandler) {
+        // Force nanoseconds on every OS and advance audit time without sleeping or relying on wall-clock resolution.
+        var initialTime = Instant.parse("2026-10-06T01:03:47.023756238Z");
+        var auditTick = new AtomicLong();
+        auditingHandler.setDateTimeProvider(() -> Optional.of(initialTime.plusSeconds(auditTick.getAndIncrement())));
+        try {
+            var original = repository.save(OrderEntity.pending("AC-1550", 1))
+                    .flatMap(saved -> repository.findById(saved.id()));
+            // Compare persisted snapshots: save() retains Java nanoseconds, PostgreSQL stores microseconds.
+            StepVerifier.create(original.flatMap(stored -> repository.save(stored.complete())
+                            .flatMap(updated -> repository.findById(updated.id()))
+                            .map(reloaded -> new OrderEntity[]{stored, reloaded})))
+                    .assertNext(pair -> {
+                        var stored = pair[0];
+                        var reloaded = pair[1];
+                        assertThat(reloaded.version()).isEqualTo(1L);
+                        assertThat(reloaded.status()).isEqualTo(OrderStatus.COMPLETED);
+                        assertThat(reloaded.updatedAt()).isAfter(stored.updatedAt());
+                        assertThat(reloaded.createdAt()).isEqualTo(stored.createdAt());
+                    })
+                    .expectComplete().verify(TIMEOUT);
+        } finally {
+            auditingHandler.setDateTimeProvider(CurrentDateTimeProvider.INSTANCE);
+        }
     }
 
     @Test
