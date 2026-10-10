@@ -16,7 +16,7 @@
     <properties>
         <java.version>25</java.version>
         <!-- Not managed by Boot. 2.28.x is the release built on OpenTelemetry API 1.62, the version Boot 4.1.1 manages. -->
-        <opentelemetry-logback-appender.version>2.28.1-alpha</opentelemetry-logback-appender.version>
+        <opentelemetry-logback-appender.version>2.32.0-alpha</opentelemetry-logback-appender.version>
         <!-- Actualizaciones de seguridad sobre las versiones gestionadas por Boot 4.1.1. -->
         <mysql.version>26.7.0</mysql.version>
         <jackson-bom.version>3.1.7</jackson-bom.version>
